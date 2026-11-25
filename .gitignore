@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# .NET build output
+bin/
+obj/
+
+# Generated studio bundle (produced by `npm run build`)
+LyricOverlay/Studio/
+
+# Distribution artifacts (installers are uploaded to GitHub Releases)
+dist/
+
+# Local portable NSIS installation (kept on this machine, never published)
+LyricOverlay/tools/nsis/
+
+# Editor and tool caches
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.cloud-attachments/
+.freebuff/
+Thumbs.db
+Desktop.ini
+.DS_Store

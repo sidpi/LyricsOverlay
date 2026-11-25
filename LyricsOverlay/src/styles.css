@@ -1,0 +1,222 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --amber: #ea7b24;
+  --spotify: #1db954;
+  --surface: rgba(18, 20, 22, 0.76);
+  --hairline: rgba(255, 255, 255, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: #050507;
+  color: #fff;
+  margin: 0;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(234, 123, 36, 0.35);
+}
+
+/* ---------- glass surfaces ---------- */
+
+.glass {
+  background: var(--surface);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border: 1px solid var(--hairline);
+  box-shadow:
+    0 28px 70px -30px rgba(0, 0, 0, 0.92),
+    0 2px 10px -4px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+.glass-soft {
+  background: rgba(20, 22, 25, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* fine film grain */
+.grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.055;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-size: 180px 180px;
+}
+
+/* ---------- typography ---------- */
+
+.font-serif-display {
+  font-family: "Playfair Display", Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.ui-label {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+/* ---------- scrollbars ---------- */
+
+.scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+.scroll-area::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 99px;
+}
+.scroll-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+/* ---------- range input ---------- */
+
+.range-amber {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+}
+.range-amber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+  transition: transform 140ms ease;
+}
+.range-amber:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+.range-amber::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+}
+
+/* ---------- colour inputs ---------- */
+
+.swatch-input {
+  -webkit-appearance: none;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+.swatch-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.swatch-input::-webkit-color-swatch {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 7px;
+}
+.swatch-input::-moz-color-swatch {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 7px;
+}
+
+/* ---------- motion helpers ---------- */
+
+@keyframes cue-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.blink {
+  animation: cue-blink 1.06s steps(1, end) infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1) translate3d(0, 0, 0);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.06) translate3d(0, -1.4%, 0);
+    opacity: 1;
+  }
+}
+.breathe {
+  animation: breathe 13s ease-in-out infinite;
+}
+
+@keyframes beat {
+  0%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.35;
+  }
+  30% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+
+/* ---------- hosted window (WPF WebView2) ---------- */
+
+[data-drag-region] {
+  -webkit-app-region: drag;
+}
+
+[data-drag-region] button,
+[data-drag-region] input,
+[data-drag-region] a,
+[data-drag-region] [role="switch"] {
+  -webkit-app-region: no-drag;
+}

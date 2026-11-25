@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>LyricOverlay</RootNamespace>
+    <AssemblyName>LyricOverlay</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+
+    <!-- Readable identity in Task Manager, file properties and the installer. -->
+    <AssemblyTitle>LyricsOverlay</AssemblyTitle>
+    <Product>LyricsOverlay</Product>
+    <Company>LyricsOverlay</Company>
+    <Description>Synced lyrics over your desktop, controlled from the LyricsOverlay studio</Description>
+
+    <!-- Single source of truth for the app version: the exe metadata, the installer filename and
+         its Settings -> Apps entry are all derived from this one value (scripts/dist.mjs reads
+         it with `dotnet msbuild -getProperty:Version`). -->
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WinForms is only used for the tray icon; drop its implicit global using so
+         System.Windows.Application stays unambiguous. -->
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <!-- The official mark: the shell icon and the tray icon both come from this file. -->
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4370.26" />
+    <PackageReference Include="SkiaSharp.HarfBuzz" Version="4.157.0" />
+    <PackageReference Include="SkiaSharp.Views.WPF" Version="4.157.0" />
+  </ItemGroup>
+
+  <!-- Studio build output: copied next to the exe and served to the WebView2 window. -->
+  <ItemGroup>
+    <None Remove="Studio\**\*" />
+    <Content Include="Studio\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,35 @@
+{
+  "name": "lyrics-overlay",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "prebuild": "node scripts/sync-version.mjs",
+    "version:sync": "node scripts/sync-version.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "icon": "python ../LyricOverlay/tools/logo-to-ico.py",
+    "dist": "node scripts/dist.mjs",
+    "build:installer": "node scripts/dist.mjs"
+  },
+  "dependencies": {
+    "@fontsource/noto-sans-devanagari": "^5.3.0",
+    "@fontsource/playfair-display": "^5.2.5",
+    "framer-motion": "^12.23.12",
+    "lucide-react": "^0.545.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.13",
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "tailwindcss": "^4.1.13",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.5"
+  }
+}
