@@ -20,6 +20,8 @@ export interface OverlayState {
   highlightColor: string;
   secondaryColor: string;
   lyricsProvider: string;
+  displayMode: string;
+  hideInFullscreen: boolean;
   playing: boolean;
   track: string;
   artist: string;
@@ -43,6 +45,8 @@ export interface OverlayPatch {
   highlightColor?: string;
   secondaryColor?: string;
   lyricsProvider?: string;
+  displayMode?: string;
+  hideInFullscreen?: boolean;
   resetColors?: boolean;
 }
 
@@ -61,6 +65,8 @@ export const FALLBACK_STATE: OverlayState = {
   highlightColor: "#FFFFFFFF",
   secondaryColor: "#73FFFFFF",
   lyricsProvider: "lrc.red",
+  displayMode: "desktopOnly",
+  hideInFullscreen: true,
   playing: false,
   track: "",
   artist: "",

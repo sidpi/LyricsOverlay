@@ -42,6 +42,12 @@ public sealed class OverlayStyle
     /// <summary>Preferred lyrics provider: "lrc.red" (default) or "lrclib". The other is the fallback.</summary>
     public string LyricsProvider { get; set; } = "lrc.red";
 
+    /// <summary>Where the overlay lives in the window stack; see <see cref="DisplayModes"/>.</summary>
+    public string DisplayMode { get; set; } = DisplayModes.DesktopOnly;
+
+    /// <summary>Hide the lyrics while a game or fullscreen video covers this monitor.</summary>
+    public bool HideInFullscreen { get; set; } = true;
+
     /// <summary>Runtime colour from the current artwork; not persisted, so manual colours survive.</summary>
     [JsonIgnore]
     public SKColor? ArtworkHighlight { get; set; }
@@ -64,6 +70,7 @@ public sealed class OverlayStyle
                 var loaded = JsonSerializer.Deserialize<OverlayStyle>(File.ReadAllText(ConfigPath));
                 if (loaded is not null)
                 {
+                    loaded.DisplayMode = DisplayModes.Normalize(loaded.DisplayMode);
                     return loaded;
                 }
             }
@@ -98,4 +105,17 @@ public sealed class OverlayStyle
 
     private static SKColor Parse(string value, SKColor fallback) =>
         SKColor.TryParse(value, out var color) ? color : fallback;
+}
+
+/// <summary>The persisted display modes: desktop-only lyrics, or floating over every app.</summary>
+public static class DisplayModes
+{
+    /// <summary>Visible only while the desktop itself is in use; apps always stay above.</summary>
+    public const string DesktopOnly = "desktopOnly";
+
+    /// <summary>Floats above all applications, still click-through and non-activating.</summary>
+    public const string AlwaysOnTop = "alwaysOnTop";
+
+    public static string Normalize(string? value) =>
+        string.Equals(value, AlwaysOnTop, StringComparison.OrdinalIgnoreCase) ? AlwaysOnTop : DesktopOnly;
 }

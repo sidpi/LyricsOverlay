@@ -65,7 +65,13 @@ public partial class OverlayWindow : Window
     private StudioWindow? _studio;
     private readonly UpdateController _updates;
     private UpdatePanelWindow? _updatePanel;
-    private bool _desktopClear = true;
+
+    // Screen state: desktop focus (desktopOnly) and fullscreen apps (auto-hide).
+    private readonly DispatcherTimer _fade = new() { Interval = TimeSpan.FromMilliseconds(16) };
+    private ForegroundWatch? _foregroundWatch;
+    private bool _desktopSuppressed;
+    private bool _fullscreenSuppressed;
+    private double _fadeTarget = 1;
 
     public OverlayWindow()
     {
@@ -82,6 +88,7 @@ public partial class OverlayWindow : Window
 
         _poller.Tick += async (_, _) => await PollAsync();
         _animator.Tick += (_, _) => OnAnimateFrame();
+        _fade.Tick += (_, _) => OnFadeFrame();
         _poller.Start();
         _animator.Start();
 
@@ -93,6 +100,9 @@ public partial class OverlayWindow : Window
         {
             _poller.Stop();
             _animator.Stop();
+            _fade.Stop();
+            _foregroundWatch?.Dispose();
+            _foregroundWatch = null;
             ScreenAwake.Release();
             _studio?.AllowClose();
             _studio?.Close();
@@ -123,9 +133,13 @@ public partial class OverlayWindow : Window
 
         var handle = new WindowInteropHelper(this).Handle;
         Win32.MakeClickThrough(handle);
-        Win32.SendToDesktopLayer(handle);
         HwndSource.FromHwnd(handle)?.AddHook(WndProc);
         RegisterHotkeys(handle);
+
+        // Focus and fullscreen changes arrive through Win32 hooks; evaluate once for the first paint.
+        ApplyZOrder();
+        SyncWatcher();
+        EvaluateScreenState();
 
         _tray = new TrayController(new TrayCallbacks
         {
@@ -135,6 +149,10 @@ public partial class OverlayWindow : Window
             Paused = () => _paused,
             OpenStudio = OpenStudio,
             CheckForUpdates = CheckForUpdates,
+            DisplayMode = () => _style.DisplayMode,
+            SetDisplayMode = SetDisplayMode,
+            HideInFullscreen = () => _style.HideInFullscreen,
+            SetHideInFullscreen = SetHideInFullscreen,
             Quit = QuitApp,
         });
 
@@ -142,7 +160,7 @@ public partial class OverlayWindow : Window
         _control = new ControlServer(HandleControlRequest);
         _control.Start();
 
-        Log.Info($"overlay started (style={StyleCatalog.NameOf(_styleKind)}, font={_style.Font}, scale={_style.TextScale:0.00}, fullscreen={_style.FullScreen}, tray=on)");
+        Log.Info($"overlay started (style={StyleCatalog.NameOf(_styleKind)}, font={_style.Font}, scale={_style.TextScale:0.00}, fullscreen={_style.FullScreen}, mode={_style.DisplayMode}, autoHideFullscreen={_style.HideInFullscreen}, tray=on)");
     }
 
     /// <summary>Bottom-centred lyric strip, or the whole work area in full-screen mode.</summary>
@@ -245,11 +263,7 @@ public partial class OverlayWindow : Window
     private void ToggleVisibility()
     {
         _hidden = !_hidden;
-        Visibility = _hidden ? Visibility.Hidden : Visibility.Visible;
-        if (!_hidden)
-        {
-            Win32.SendToDesktopLayer(new WindowInteropHelper(this).Handle);
-        }
+        ApplyPresentation();
     }
 
     private void SetPaused(bool paused)
@@ -498,6 +512,8 @@ public partial class OverlayWindow : Window
         highlightColor = _style.HighlightColor,
         secondaryColor = _style.SecondaryColor,
         lyricsProvider = _style.LyricsProvider,
+        displayMode = _style.DisplayMode,
+        hideInFullscreen = _style.HideInFullscreen,
         playing = _playing && !_paused,
         track = _snapshot?.Title ?? string.Empty,
         artist = _snapshot?.Artist ?? string.Empty,
@@ -576,6 +592,18 @@ public partial class OverlayWindow : Window
             SetLyricsProvider(providerName);
         }
 
+        if (patch.TryGetProperty("displayMode", out var displayMode) &&
+            displayMode.ValueKind == JsonValueKind.String)
+        {
+            SetDisplayMode(displayMode.GetString());
+        }
+
+        if (patch.TryGetProperty("hideInFullscreen", out var hideInFullscreen) &&
+            hideInFullscreen.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            SetHideInFullscreen(hideInFullscreen.GetBoolean());
+        }
+
         var colorsChanged = false;
         colorsChanged |= ApplyColor(patch, "textColor", value => _style.TextColor = value);
         colorsChanged |= ApplyColor(patch, "highlightColor", value => _style.HighlightColor = value);
@@ -613,19 +641,154 @@ public partial class OverlayWindow : Window
     private void SetHidden(bool hidden)
     {
         _hidden = hidden;
-        Visibility = hidden ? Visibility.Hidden : Visibility.Visible;
-        if (!hidden)
-        {
-            Win32.SendToDesktopLayer(new WindowInteropHelper(this).Handle);
-        }
-
+        ApplyPresentation();
         Log.Info(hidden ? "overlay hidden from studio" : "overlay shown from studio");
     }
 
+    /// <summary>Fades the lyrics in or out for the active mode, focus and fullscreen state.</summary>
+    private void ApplyPresentation()
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        var visible = !_hidden && !_desktopSuppressed && !_fullscreenSuppressed;
+        if (visible)
+        {
+            if (Visibility != Visibility.Visible)
+            {
+                Visibility = Visibility.Visible;
+            }
+
+            ApplyZOrder();
+            _fadeTarget = 1;
+        }
+        else
+        {
+            _fadeTarget = 0;
+        }
+
+        if (!_fade.IsEnabled && Math.Abs(Opacity - _fadeTarget) > 0.001)
+        {
+            _fade.Start();
+        }
+    }
+
+    private void OnFadeFrame()
+    {
+        const double step = 1.0 / 14.0;
+        Opacity = _fadeTarget > Opacity
+            ? Math.Min(_fadeTarget, Opacity + step)
+            : Math.Max(_fadeTarget, Opacity - step);
+
+        if (Math.Abs(Opacity - _fadeTarget) > 0.001)
+        {
+            return;
+        }
+
+        Opacity = _fadeTarget;
+        _fade.Stop();
+
+        // Fully faded: hide the window outright so nothing is painted or composited behind apps.
+        if (_fadeTarget == 0)
+        {
+            Visibility = Visibility.Hidden;
+        }
+    }
+
+    /// <summary>Pins the overlay above apps, or back on the desktop layer, for the active mode.</summary>
+    private void ApplyZOrder()
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (_style.DisplayMode == DisplayModes.AlwaysOnTop)
+        {
+            Topmost = true;
+        }
+        else
+        {
+            Topmost = false;
+            Win32.SendToDesktopLayer(handle);
+        }
+    }
+
+    /// <summary>Hooks foreground/size events only while a feature actually needs them.</summary>
+    private void SyncWatcher()
+    {
+        var needed = _style.DisplayMode == DisplayModes.DesktopOnly || _style.HideInFullscreen;
+        if (!needed)
+        {
+            _foregroundWatch?.Dispose();
+            _foregroundWatch = null;
+            return;
+        }
+
+        _foregroundWatch ??= new ForegroundWatch(Dispatcher, EvaluateScreenState);
+    }
+
+    /// <summary>Recomputes suppression from Win32 hooks; never from a polling timer.</summary>
+    private void EvaluateScreenState()
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        var handle = new WindowInteropHelper(this).Handle;
+
+        var fullscreen = _style.HideInFullscreen && DesktopGuard.IsFullscreenCovering(handle);
+        if (fullscreen != _fullscreenSuppressed)
+        {
+            _fullscreenSuppressed = fullscreen;
+            Log.Info(fullscreen
+                ? "fullscreen app on this monitor; fading lyrics out"
+                : "fullscreen app gone; restoring lyrics");
+        }
+
+        var covered = _style.DisplayMode == DisplayModes.DesktopOnly && !DesktopGuard.IsDesktopClear(handle);
+        if (covered != _desktopSuppressed)
+        {
+            _desktopSuppressed = covered;
+            Log.Info(covered
+                ? "another app is active or covering the overlay; fading lyrics out"
+                : "desktop clear; fading lyrics in");
+        }
+
+        ApplyZOrder();
+        ApplyPresentation();
+    }
+
+    private void SetDisplayMode(string? mode)
+    {
+        var normalized = DisplayModes.Normalize(mode);
+        _style.DisplayMode = normalized;
+        _style.Save();
+        Log.Info($"display mode -> {normalized}");
+        SyncWatcher();
+        EvaluateScreenState();
+        _studio?.SyncState();
+    }
+
+    private void SetHideInFullscreen(bool enabled)
+    {
+        _style.HideInFullscreen = enabled;
+        _style.Save();
+        Log.Info(enabled ? "fullscreen auto-hide on" : "fullscreen auto-hide off");
+        SyncWatcher();
+        EvaluateScreenState();
+        _studio?.SyncState();
+    }
+
+    /// <summary>Painting stops once the window is fully faded out or manually hidden.</summary>
+    private bool RenderReady => !_hidden && Opacity > 0.01;
+
     private async System.Threading.Tasks.Task PollAsync()
     {
-        UpdateDesktopGuard();
-
         var snapshot = await MediaSessionService.ReadAsync();
         _snapshot = snapshot;
 
@@ -669,36 +832,12 @@ public partial class OverlayWindow : Window
 
     private void OnAnimateFrame()
     {
-        if (!_desktopClear)
+        if (!RenderReady)
         {
             return;
         }
 
         UpdateLineState();
-        Canvas.InvalidateVisual();
-    }
-
-    /// <summary>Lyrics belong to the desktop only: pause them while any app is in use.</summary>
-    private void UpdateDesktopGuard()
-    {
-        var handle = new WindowInteropHelper(this).Handle;
-        var clear = !_hidden && DesktopGuard.IsDesktopClear(handle);
-        if (clear)
-        {
-            // Shell flyouts and the taskbar can re-order windows; keep the lyrics pinned to the
-            // desktop layer so those surfaces stay above the overlay without hiding it.
-            Win32.SendToDesktopLayer(handle);
-        }
-
-        if (clear == _desktopClear)
-        {
-            return;
-        }
-
-        _desktopClear = clear;
-        Log.Info(clear
-            ? "desktop clear; showing lyrics"
-            : "another app is active or covering the overlay; pausing lyrics");
         Canvas.InvalidateVisual();
     }
 
@@ -801,7 +940,7 @@ public partial class OverlayWindow : Window
         var info = e.Info;
         canvas.Clear(SKColors.Transparent);
 
-        if (!_desktopClear)
+        if (!RenderReady)
         {
             return;
         }

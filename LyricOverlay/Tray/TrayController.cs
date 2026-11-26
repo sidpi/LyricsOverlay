@@ -15,6 +15,10 @@ internal sealed class TrayCallbacks
     public required Func<bool> Paused { get; init; }
     public required Action OpenStudio { get; init; }
     public required Action CheckForUpdates { get; init; }
+    public required Func<string> DisplayMode { get; init; }
+    public required Action<string> SetDisplayMode { get; init; }
+    public required Func<bool> HideInFullscreen { get; init; }
+    public required Action<bool> SetHideInFullscreen { get; init; }
     public required Action Quit { get; init; }
 }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using LyricOverlay.Rendering;
 
 using WpfBrush = System.Windows.Media.Brush;
 
@@ -50,6 +51,31 @@ internal partial class TrayMenuView : UserControl
             }));
 
         AddToggle(root, "Pause tracking", _callbacks.Paused(), _callbacks.SetPaused);
+
+        AddDivider(root);
+        AddHeader(root, "DISPLAY");
+
+        var mode = _callbacks.DisplayMode();
+        var desktopCheck = Check(mode == DisplayModes.DesktopOnly);
+        var topCheck = Check(mode == DisplayModes.AlwaysOnTop);
+
+        void Choose(string next)
+        {
+            _callbacks.SetDisplayMode(next);
+            desktopCheck.Visibility = next == DisplayModes.DesktopOnly
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            topCheck.Visibility = next == DisplayModes.AlwaysOnTop
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        root.Children.Add(Row("Display: Idle Desktop Only", desktopCheck, null,
+            () => Choose(DisplayModes.DesktopOnly)));
+        root.Children.Add(Row("Display: Over Any App", topCheck, null,
+            () => Choose(DisplayModes.AlwaysOnTop)));
+        AddToggle(root, "Auto-hide in Fullscreen", _callbacks.HideInFullscreen(),
+            _callbacks.SetHideInFullscreen);
 
         AddDivider(root);
         root.Children.Add(Row("Quit", null, Hint("Ctrl+Alt+Q"), () =>
