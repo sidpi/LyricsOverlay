@@ -56,6 +56,9 @@ public partial class StudioWindow : Window
     /// <summary>Lets the window close for real when the app is quitting.</summary>
     public void AllowClose() => _allowClose = true;
 
+    /// <summary>Pushes the live state right away, so a tray change shows in the studio at once.</summary>
+    internal void SyncState() => PushState();
+
     public void Present()
     {
         if (!IsVisible)

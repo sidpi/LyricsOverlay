@@ -28,6 +28,18 @@ internal static class DesktopGuard
         public int Bottom;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public Rect RcMonitor;
+        public Rect RcWork;
+        public uint Flags;
+
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string Device;
+    }
+
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
@@ -56,6 +68,20 @@ internal static class DesktopGuard
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int size);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    [DllImport("shell32.dll")]
+    private static extern int SHQueryUserNotificationState(out int state);
+
+    private const uint MonitorDefaultToNearest = 0x00000002;
+    private const int QunsD3dFullScreen = 3;
+    private const int QunsPresentationMode = 4;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
@@ -147,6 +173,79 @@ internal static class DesktopGuard
         }, IntPtr.Zero);
 
         return clear;
+    }
+
+    /// <summary>
+    /// True when a fullscreen game, video or presentation covers the monitor LyricsOverlay is on.
+    /// Combines the shell's exclusive-fullscreen state with a foreground-bounds check, so
+    /// borderless games and fullscreen browser video are caught as well.
+    /// </summary>
+    public static bool IsFullscreenCovering(IntPtr overlay)
+    {
+        var foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        // Our own windows, the desktop shell and the taskbar are never "a fullscreen app".
+        var root = Root(foreground);
+        if (root == overlay || foreground == overlay || IsOwnedByCurrentProcess(foreground))
+        {
+            return false;
+        }
+
+        if (IsShellWindow(root) || IsShellWindow(foreground))
+        {
+            return false;
+        }
+
+        if (!IsWindowVisible(foreground) || IsIconic(foreground) || IsCloaked(foreground))
+        {
+            return false;
+        }
+
+        // Multi-monitor: only the monitor LyricsOverlay sits on can hide it.
+        var overlayMonitor = MonitorFromWindow(overlay, MonitorDefaultToNearest);
+        var foregroundMonitor = MonitorFromWindow(foreground, MonitorDefaultToNearest);
+        if (overlayMonitor == IntPtr.Zero || foregroundMonitor != overlayMonitor)
+        {
+            return false;
+        }
+
+        // Exclusive DirectX/Vulkan fullscreen and presentation modes are fullscreen by definition.
+        if (SHQueryUserNotificationState(out var state) == 0 &&
+            state is QunsD3dFullScreen or QunsPresentationMode)
+        {
+            return true;
+        }
+
+        // Everything else — including QUNS_BUSY, which is also reported for presentation settings
+        // and other shell states — only counts when the focused window really covers its monitor.
+        // This is what catches borderless games and fullscreen browser video.
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(foregroundMonitor, ref info) || !GetWindowRect(foreground, out var rect))
+        {
+            return false;
+        }
+
+        const int tolerance = 2;
+        return rect.Left <= info.RcMonitor.Left + tolerance &&
+               rect.Top <= info.RcMonitor.Top + tolerance &&
+               rect.Right >= info.RcMonitor.Right - tolerance &&
+               rect.Bottom >= info.RcMonitor.Bottom - tolerance;
+    }
+
+    private static IntPtr Root(IntPtr hwnd)
+    {
+        var root = GetAncestor(hwnd, GaRoot);
+        return root == IntPtr.Zero ? hwnd : root;
+    }
+
+    private static bool IsOwnedByCurrentProcess(IntPtr hwnd)
+    {
+        GetWindowThreadProcessId(hwnd, out var processId);
+        return processId != 0 && processId == (uint)Environment.ProcessId;
     }
 
     private static bool Blocks(IntPtr hwnd, Rect bounds)

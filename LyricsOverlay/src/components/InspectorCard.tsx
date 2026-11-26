@@ -143,6 +143,44 @@ function ScreenView() {
       <Row title="Show lyrics">
         <Toggle on={!overlay.hidden} onChange={(value) => apply({ hidden: !value })} />
       </Row>
+
+      <div className="my-2 h-px w-full bg-white/[0.09]" />
+
+      <p className="ui-label mb-2">Display mode</p>
+      <div className="flex gap-1 rounded-[9px] bg-white/[0.04] p-1">
+        {[
+          { id: "desktopOnly", label: "Idle Desktop" },
+          { id: "alwaysOnTop", label: "Over Any App" },
+        ].map((mode) => {
+          const active = overlay.displayMode === mode.id;
+          return (
+            <button
+              key={mode.id}
+              onClick={() => apply({ displayMode: mode.id })}
+              className={`flex-1 rounded-[7px] py-[6px] text-[11.5px] font-medium transition-colors ${
+                active ? "bg-white/12 text-white" : "text-white/45 hover:text-white/75"
+              }`}
+            >
+              {mode.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-[6px] text-[10.5px] leading-tight text-white/36">
+        {overlay.displayMode === "alwaysOnTop"
+          ? "Floats above apps; clicks pass straight through."
+          : "Only on the desktop; open apps stay above it."}
+      </p>
+
+      <Row title="Auto-hide in fullscreen apps & games" subtitle="Games and fullscreen video hide the lyrics">
+        <Toggle
+          on={overlay.hideInFullscreen}
+          onChange={(value) => apply({ hideInFullscreen: value })}
+        />
+      </Row>
+
+      <div className="my-2 h-px w-full bg-white/[0.09]" />
+
       <Row title="Keep the screen awake" subtitle="While music is playing">
         <Toggle on={overlay.keepAwake} onChange={(value) => apply({ keepAwake: value })} />
       </Row>
