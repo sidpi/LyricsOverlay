@@ -4,7 +4,7 @@
   <p><em>Karaoke-style synced lyrics, floating above anything you do on Windows.</em></p>
 
   <p>
-    <img src="https://img.shields.io/badge/version-1.1.0-orange?style=for-the-badge" alt="version 1.1.0" />
+    <img src="https://img.shields.io/badge/version-1.1.2-orange?style=for-the-badge" alt="version 1.1.2" />
     <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows" />
     <img src="https://img.shields.io/badge/.NET-10-512BD4?style=for-the-badge&logo=dotnet&logoColor=white" alt=".NET 10" />
     <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19" />
