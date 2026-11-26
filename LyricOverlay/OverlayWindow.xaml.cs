@@ -13,6 +13,7 @@ using LyricOverlay.Native;
 using LyricOverlay.Rendering;
 using LyricOverlay.Services;
 using LyricOverlay.Tray;
+using LyricOverlay.Updates;
 
 namespace LyricOverlay;
 
@@ -62,6 +63,8 @@ public partial class OverlayWindow : Window
     private TrayController? _tray;
     private ControlServer? _control;
     private StudioWindow? _studio;
+    private readonly UpdateController _updates;
+    private UpdatePanelWindow? _updatePanel;
     private bool _desktopClear = true;
 
     public OverlayWindow()
@@ -81,6 +84,9 @@ public partial class OverlayWindow : Window
         _animator.Tick += (_, _) => OnAnimateFrame();
         _poller.Start();
         _animator.Start();
+
+        // Mock mode (LYRICOVERLAY_UPDATE_MOCK=1) exercises the panel without a published release.
+        _updates = new UpdateController(UpdateServices.Create(), QuitApp);
 
         Loaded += OnLoaded;
         Closed += (_, _) =>
@@ -128,6 +134,7 @@ public partial class OverlayWindow : Window
             SetPaused = SetPaused,
             Paused = () => _paused,
             OpenStudio = OpenStudio,
+            CheckForUpdates = CheckForUpdates,
             Quit = QuitApp,
         });
 
@@ -420,6 +427,34 @@ public partial class OverlayWindow : Window
     {
         _studio ??= new StudioWindow(this);
         _studio.Present();
+    }
+
+    /// <summary>Opens the update panel and asks GitHub Releases for a newer build.</summary>
+    internal void CheckForUpdates()
+    {
+        ShowUpdatePanel();
+        _ = _updates.CheckAsync();
+    }
+
+    private void ShowUpdatePanel()
+    {
+        if (_updatePanel is { IsVisible: true })
+        {
+            _updatePanel.Activate();
+            return;
+        }
+
+        var panel = new UpdatePanelWindow(_updates, _studio is { IsVisible: true } ? _studio : null);
+        panel.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_updatePanel, panel))
+            {
+                _updatePanel = null;
+            }
+        };
+
+        _updatePanel = panel;
+        panel.Show();
     }
 
     internal string ControlRequest(JsonElement request) => HandleControlRequest(request);

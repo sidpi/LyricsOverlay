@@ -120,6 +120,12 @@ Section "LyricsOverlay" SecMain
     MessageBox MB_OK|MB_ICONINFORMATION "${APP_NAME} needs the Microsoft Edge WebView2 runtime for its studio window.$\r$\n$\r$\nIf the studio does not open, install it from https://developer.microsoft.com/microsoft-edge/webview2/ and start ${APP_NAME} again."
     webview2_checked:
   ${EndIf}
+
+  ; Silent installs (/S) skip the finish page, so relaunch the updated app explicitly.
+  ; The in-app updater depends on this to bring LyricsOverlay back after /S.
+  ${If} ${Silent}
+    Exec '"$INSTDIR\${APP_EXE}"'
+  ${EndIf}
 SectionEnd
 
 Section "Uninstall"

@@ -61,6 +61,15 @@ public partial class App : Application
             return;
         }
 
+        // Local preview of every update state, with no GitHub call and nothing installed.
+        if (e.Args.Any(a => string.Equals(a, "--update-preview", StringComparison.OrdinalIgnoreCase)))
+        {
+            var preview = new Updates.UpdatePreviewWindow();
+            MainWindow = preview;
+            preview.Show();
+            return;
+        }
+
         // One app at a time: a second launch just brings the running studio forward.
         _instance = new Mutex(initiallyOwned: true, @"Local\LyricOverlay.SingleInstance", out var isFirst);
         if (!isFirst)

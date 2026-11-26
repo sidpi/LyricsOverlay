@@ -1,0 +1,17 @@
+<Window x:Class="LyricOverlay.Updates.UpdatePanelWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:updates="clr-namespace:LyricOverlay.Updates"
+        Title="Software update"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        Topmost="True"
+        WindowStartupLocation="Manual"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+    <updates:UpdatePanelView x:Name="Panel" />
+</Window>

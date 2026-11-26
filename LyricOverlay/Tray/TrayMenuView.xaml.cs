@@ -31,6 +31,11 @@ internal partial class TrayMenuView : UserControl
             _callbacks.OpenStudio();
             CloseMenu();
         }));
+        root.Children.Add(Row("Check for updates…", null, null, () =>
+        {
+            _callbacks.CheckForUpdates();
+            CloseMenu();
+        }));
 
         AddDivider(root);
         AddHeader(root, "PLAYBACK");

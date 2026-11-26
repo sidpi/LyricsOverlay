@@ -14,6 +14,7 @@ internal sealed class TrayCallbacks
     public required Action<bool> SetPaused { get; init; }
     public required Func<bool> Paused { get; init; }
     public required Action OpenStudio { get; init; }
+    public required Action CheckForUpdates { get; init; }
     public required Action Quit { get; init; }
 }
 
