@@ -284,7 +284,7 @@ The **Studio** is a Vite + React bundle inside WebView2 that reads and patches l
 ### Commands
 
 ```powershell
-git clone [https://github.com/sidpi/LyricsOverlay.git](https://github.com/sidpi/LyricsOverlay.git)
+git clone https://github.com/sidpi/LyricsOverlay.git
 cd LyricsOverlay/LyricsOverlay
 npm install
 
