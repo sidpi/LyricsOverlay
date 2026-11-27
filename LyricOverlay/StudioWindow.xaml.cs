@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using LyricOverlay.Diagnostics;
+using LyricOverlay.Services;
 using Microsoft.Web.WebView2.Core;
 
 namespace LyricOverlay;
@@ -29,7 +30,6 @@ public partial class StudioWindow : Window
     private readonly OverlayWindow _overlay;
     private readonly DispatcherTimer _push = new() { Interval = TimeSpan.FromSeconds(1) };
     private bool _ready;
-    private bool _allowClose;
 
     public StudioWindow(OverlayWindow overlay)
     {
@@ -40,21 +40,55 @@ public partial class StudioWindow : Window
         Loaded += async (_, _) => await InitAsync();
         _push.Tick += (_, _) => PushState();
 
-        Closing += (_, e) =>
-        {
-            // Closing the studio parks the app in the tray; only an app shutdown really closes it.
-            if (_allowClose || Application.Current.Dispatcher.HasShutdownStarted)
-            {
-                return;
-            }
+        // Closing the studio closes it for real. The app keeps running in the tray through the
+        // overlay window; the next open builds a fresh window and WebView2 on demand. A hidden
+        // WebView2 would keep its renderer, cache and timers alive for no benefit.
+        Closed += (_, _) => DisposeBrowser();
 
-            e.Cancel = true;
-            Hide();
-        };
+        // A minimised studio paints nothing: ask WebView2 to shrink its working set, and let it
+        // expand again when the window is restored. Ignored by older Evergreen runtimes.
+        StateChanged += (_, _) => SetMemoryTarget();
     }
 
-    /// <summary>Lets the window close for real when the app is quitting.</summary>
-    public void AllowClose() => _allowClose = true;
+    private void DisposeBrowser()
+    {
+        _push.Stop();
+        _ready = false;
+
+        try
+        {
+            if (Web.CoreWebView2 is { } core)
+            {
+                core.WebMessageReceived -= OnMessage;
+            }
+
+            Web.Dispose();
+            Log.Info("studio webview disposed");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("studio webview dispose failed", ex);
+        }
+    }
+
+    private void SetMemoryTarget()
+    {
+        if (Web.CoreWebView2 is not { } core)
+        {
+            return;
+        }
+
+        try
+        {
+            core.MemoryUsageTargetLevel = WindowState == WindowState.Minimized
+                ? CoreWebView2MemoryUsageTargetLevel.Low
+                : CoreWebView2MemoryUsageTargetLevel.Normal;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("webview2 memory target unavailable", ex);
+        }
+    }
 
     /// <summary>Pushes the live state right away, so a tray change shows in the studio at once.</summary>
     internal void SyncState() => PushState();
@@ -80,7 +114,7 @@ public partial class StudioWindow : Window
     {
         try
         {
-            await Web.EnsureCoreWebView2Async();
+            await Web.EnsureCoreWebView2Async(await WebViewEnvironment.GetAsync());
             var core = Web.CoreWebView2;
             var devUrl = Environment.GetEnvironmentVariable("LYRICOVERLAY_STUDIO_DEV");
             var development = !string.IsNullOrWhiteSpace(devUrl);
@@ -179,7 +213,7 @@ public partial class StudioWindow : Window
                 WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
                 break;
             case "close":
-                Hide();
+                Close();
                 break;
             case "drag":
                 StartDrag();

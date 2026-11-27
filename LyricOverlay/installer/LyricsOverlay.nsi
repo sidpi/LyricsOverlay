@@ -84,8 +84,10 @@ Section "LyricsOverlay" SecMain
   !insertmacro StopRunning
 
   SetOutPath "$INSTDIR"
-  ; The published app folder: exe, .NET runtime, SkiaSharp/WebView2 natives and Studio assets.
-  File /r "${SOURCE_DIR}\*.*"
+  ; The published app folder: the single-file exe (which carries .NET, SkiaSharp and the
+  ; WebView2 loader) plus the Studio bundle. Symbols, docs and source maps are build
+  ; leftovers, never runtime inputs, so they are excluded even if a stray one survives publish.
+  File /r /x "*.pdb" /x "*.xml" /x "*.map" "${SOURCE_DIR}\*.*"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
@@ -111,13 +113,16 @@ Section "LyricsOverlay" SecMain
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "${REG_UNINSTALL}" "EstimatedSize" "$0"
 
-  ; WebView2 ships with Windows 10/11 in practice; warn once instead of failing the install.
+  ; WebView2 is Evergreen: no Fixed Version runtime is bundled with this installer. Check both
+  ; the machine-wide and per-user registrations, and only when both are missing offer the
+  ; official lightweight bootstrapper. The overlay itself keeps working without it.
   ReadRegStr $1 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
   ReadRegStr $2 HKCU "Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
   ${If} $1 == ""
   ${AndIf} $2 == ""
     IfSilent webview2_checked
-    MessageBox MB_OK|MB_ICONINFORMATION "${APP_NAME} needs the Microsoft Edge WebView2 runtime for its studio window.$\r$\n$\r$\nIf the studio does not open, install it from https://developer.microsoft.com/microsoft-edge/webview2/ and start ${APP_NAME} again."
+    MessageBox MB_YESNO|MB_ICONINFORMATION "${APP_NAME} needs the Microsoft Edge WebView2 runtime for its studio window (lyrics still work without it).$\r$\n$\r$\nDownload and run the official lightweight bootstrapper now?" IDNO webview2_checked
+    ExecShell "open" "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
     webview2_checked:
   ${EndIf}
 

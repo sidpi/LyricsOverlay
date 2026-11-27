@@ -23,7 +23,23 @@
     <!-- Single source of truth for the app version: the exe metadata, the installer filename and
          its Settings -> Apps entry are all derived from this one value (scripts/dist.mjs reads
          it with `dotnet msbuild -getProperty:Version`). -->
-    <Version>1.1.2</Version>
+    <Version>1.1.3</Version>
+
+    <!-- Installed footprint: one compressed exe, no symbol files, no satellite UI languages
+         (SatelliteResourceLanguages above keeps only English resources). Native SkiaSharp and
+         WebView2 libraries ride inside the single file and are extracted on launch. -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishReadyToRun>false</PublishReadyToRun>
+
+    <!-- Runtime footprint: this is a desktop overlay, not a server; the workstation GC with a
+         small heap beats throughput here. System.GC.ConserveMemory lives in
+         runtimeconfig.template.json because it has no dedicated MSBuild property. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

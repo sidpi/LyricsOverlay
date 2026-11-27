@@ -90,7 +90,8 @@ public partial class OverlayWindow : Window
         _animator.Tick += (_, _) => OnAnimateFrame();
         _fade.Tick += (_, _) => OnFadeFrame();
         _poller.Start();
-        _animator.Start();
+        // The animator starts on the first playing track (see SyncAnimator); idling or hiding the
+        // overlay must not repaint the surface or wake the UI thread 30 times a second.
 
         // Mock mode (LYRICOVERLAY_UPDATE_MOCK=1) exercises the panel without a published release.
         _updates = new UpdateController(UpdateServices.Create(), QuitApp);
@@ -104,7 +105,6 @@ public partial class OverlayWindow : Window
             _foregroundWatch?.Dispose();
             _foregroundWatch = null;
             ScreenAwake.Release();
-            _studio?.AllowClose();
             _studio?.Close();
             _tray?.Dispose();
             _control?.Dispose();
@@ -283,6 +283,7 @@ public partial class OverlayWindow : Window
 
         Log.Info(paused ? "tracking paused from tray" : "tracking resumed from tray");
         Canvas.InvalidateVisual();
+        SyncAnimator();
     }
 
     private void SetStyle(StyleKind kind)
@@ -436,10 +437,25 @@ public partial class OverlayWindow : Window
         Canvas.InvalidateVisual();
     }
 
-    /// <summary>Opens the studio, creating it on first use. One process, one tray icon.</summary>
+    /// <summary>
+    /// Opens the studio, building it on demand. Closing the studio disposes its window and
+    /// WebView2; the next open gets a fresh one instead of waking a hidden browser.
+    /// </summary>
     internal void OpenStudio()
     {
-        _studio ??= new StudioWindow(this);
+        if (_studio is null)
+        {
+            var studio = new StudioWindow(this);
+            studio.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_studio, studio))
+                {
+                    _studio = null;
+                }
+            };
+            _studio = studio;
+        }
+
         _studio.Present();
     }
 
@@ -673,6 +689,8 @@ public partial class OverlayWindow : Window
         {
             _fade.Start();
         }
+
+        SyncAnimator();
     }
 
     private void OnFadeFrame()
@@ -695,6 +713,8 @@ public partial class OverlayWindow : Window
         {
             Visibility = Visibility.Hidden;
         }
+
+        SyncAnimator();
     }
 
     /// <summary>Pins the overlay above apps, or back on the desktop layer, for the active mode.</summary>
@@ -787,6 +807,28 @@ public partial class OverlayWindow : Window
     /// <summary>Painting stops once the window is fully faded out or manually hidden.</summary>
     private bool RenderReady => !_hidden && Opacity > 0.01;
 
+    /// <summary>True while a playing track is on screen, so the surface must keep animating.</summary>
+    private bool Animating =>
+        RenderReady && _playing && !_paused && _snapshot is { Title.Length: > 0 };
+
+    /// <summary>Runs the 30 fps animator only while a playing line actually needs frames.</summary>
+    private void SyncAnimator()
+    {
+        if (Animating == _animator.IsEnabled)
+        {
+            return;
+        }
+
+        if (Animating)
+        {
+            _animator.Start();
+        }
+        else
+        {
+            _animator.Stop();
+        }
+    }
+
     private async System.Threading.Tasks.Task PollAsync()
     {
         var snapshot = await MediaSessionService.ReadAsync();
@@ -799,6 +841,7 @@ public partial class OverlayWindow : Window
             _lyricsResult = null;
             ClearLyricState();
             ScreenAwake.Set(false);
+            RefreshPaint();
             return;
         }
 
@@ -810,6 +853,7 @@ public partial class OverlayWindow : Window
 
         if (_fetching || snapshot.Key == _loadedTrackKey)
         {
+            RefreshPaint();
             return;
         }
 
@@ -818,6 +862,7 @@ public partial class OverlayWindow : Window
         ClearLyricState();
         _offsetMs = 0; // the nudge is per track
         ApplyArtworkForTrack(snapshot.Key);
+        RefreshPaint();
 
         _fetching = true;
         try
@@ -828,12 +873,27 @@ public partial class OverlayWindow : Window
         {
             _fetching = false;
         }
+
+        RefreshPaint();
+    }
+
+    /// <summary>Paints one authoritative frame after a poll and keeps the animator in step.</summary>
+    private void RefreshPaint()
+    {
+        if (RenderReady)
+        {
+            Canvas.InvalidateVisual();
+        }
+
+        SyncAnimator();
     }
 
     private void OnAnimateFrame()
     {
-        if (!RenderReady)
+        if (!Animating)
         {
+            // Nothing plays or the overlay is hidden: stop the timer instead of ticking no-ops.
+            SyncAnimator();
             return;
         }
 
