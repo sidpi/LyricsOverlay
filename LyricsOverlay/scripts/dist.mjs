@@ -69,6 +69,31 @@ const findMakensis = () => {
   process.exit(1);
 };
 
+/** Total bytes of a directory tree, for honest payload reporting. */
+const directorySize = (dir) =>
+  readdirSync(dir, { withFileTypes: true }).reduce((total, entry) => {
+    const full = path.join(dir, entry.name);
+    return total + (entry.isDirectory() ? directorySize(full) : statSync(full).size);
+  }, 0);
+
+/**
+ * Drops build leftovers that are never read at runtime. Native SkiaSharp alone used to ship
+ * ~120 MB of .pdb this way, which is most of the old install size.
+ */
+const stripBuildArtifacts = (dir) => {
+  let removed = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      removed += stripBuildArtifacts(full);
+    } else if (/\.(pdb|xml|map)$/i.test(entry.name)) {
+      rmSync(full, { force: true });
+      removed += 1;
+    }
+  }
+  return removed;
+};
+
 let version;
 let version4;
 try {
@@ -103,8 +128,12 @@ run(
     "win-x64",
     "--self-contained",
     "true",
-    "-p:PublishSingleFile=false",
+    "-p:PublishSingleFile=true",
+    "-p:EnableCompressionInSingleFile=true",
+    "-p:IncludeNativeLibrariesForSelfExtract=true",
+    "-p:PublishReadyToRun=false",
     "-p:DebugType=none",
+    "-p:DebugSymbols=false",
     "-p:GenerateDocumentationFile=false",
     "-o",
     publishDir,
@@ -112,13 +141,19 @@ run(
   project,
 );
 
+const removed = stripBuildArtifacts(publishDir);
+if (removed > 0) {
+  console.log(`removed ${removed} non-runtime file(s) (*.pdb, *.xml, *.map) from the payload`);
+}
+
 const exe = path.join(publishDir, "LyricOverlay.exe");
 if (!existsSync(exe)) {
   console.error(`\npublish did not produce ${exe}`);
   process.exit(1);
 }
 
-for (const asset of ["Studio/index.html", "Studio/logo.png", "WebView2Loader.dll"]) {
+// WebView2Loader.dll is inside the single file now; only the on-disk studio assets are checked.
+for (const asset of ["Studio/index.html", "Studio/logo.png"]) {
   if (!existsSync(path.join(publishDir, asset))) {
     console.error(`\npublished app is missing ${asset}`);
     process.exit(1);
@@ -144,7 +179,7 @@ if (!existsSync(installer)) {
   process.exit(1);
 }
 
-const megabytes = (statSync(installer).size / (1024 * 1024)).toFixed(1);
-const files = readdirSync(publishDir).length;
+const installerMb = (statSync(installer).size / (1024 * 1024)).toFixed(1);
+const payloadMb = (directorySize(publishDir) / (1024 * 1024)).toFixed(1);
 console.log(`\ninstaller: ${installer}`);
-console.log(`size: ${megabytes} MB  (app payload: ${files} files in ${publishDir})`);
+console.log(`size: ${installerMb} MB  (app payload: ${payloadMb} MB in ${publishDir})`);
