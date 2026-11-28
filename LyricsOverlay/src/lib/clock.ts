@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DEMO_TRACK, LINE_DURATION, TRACK_LOOP, type LyricLine } from "./lyrics";
+import { DEMO_TRACK, TRACK_LOOP, type LyricLine } from "./lyrics";
 
 export interface LyricFrame {
   time: number;
@@ -24,10 +24,14 @@ export const currentTime = () => {
 
 export const frameAt = (time: number): LyricFrame => {
   const lines = DEMO_TRACK.lines;
-  const index = Math.min(lines.length - 1, Math.max(0, Math.floor(time / LINE_DURATION)));
+  // The line is current from its own start stamp, so progress can run start -> next start.
+  let index = 0;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].start <= time) index = i;
+  }
   const line = lines[index];
-  const local = time - index * LINE_DURATION;
-  const lineProgress = Math.min(1, Math.max(0, local / LINE_DURATION));
+  const nextStart = lines[index + 1]?.start ?? line.end;
+  const lineProgress = Math.min(1, Math.max(0, (time - line.start) / Math.max(0.001, nextStart - line.start)));
 
   let activeWord = 0;
   for (let i = 0; i < line.words.length; i += 1) {

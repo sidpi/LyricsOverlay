@@ -15,6 +15,8 @@ internal readonly record struct StyleContext(
     SKTypeface Mono,
     IReadOnlyList<TimedWord> Words,
     double PositionMs,
+    double LineStartMs,
+    double LineEndMs,
     float Width,
     float Height,
     float Enter,
@@ -206,7 +208,7 @@ internal static class StyleRenderers
         ghostPaint.Color = WithAlpha(lavender, ctx.Alpha * ease * 0.30f);
         ctx.Canvas.DrawText(text, textX, rowBaseline, SKTextAlign.Left, font, ghostPaint);
 
-        var revealed = SungFraction(ctx) * text.Length;
+        var revealed = LineProgress(ctx) * text.Length;
         var whole = Math.Clamp((int)Math.Floor(revealed), 0, text.Length);
         var fraction = revealed - whole;
         var litWidth = font.MeasureText(text[..whole]);
@@ -879,6 +881,18 @@ internal static class StyleRenderers
 
             ctx.Canvas.Restore();
         }
+    }
+
+    /// <summary>0..1 across the line's own window, so the reveal lands exactly on the next line.</summary>
+    private static float LineProgress(in StyleContext ctx)
+    {
+        var span = ctx.LineEndMs - ctx.LineStartMs;
+        if (span <= 0)
+        {
+            return SungFraction(ctx);
+        }
+
+        return (float)Math.Clamp((ctx.PositionMs - ctx.LineStartMs) / span, 0, 1);
     }
 
     /// <summary>How much of the current line has been sung, as a fraction of its characters.</summary>

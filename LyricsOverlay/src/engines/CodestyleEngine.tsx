@@ -9,7 +9,7 @@ export function CodestyleEngine({ frame, colors }: EngineProps) {
   const total = DEMO_TRACK.lines.length;
   const previous = DEMO_TRACK.lines[(frame.lineIndex - 1 + total) % total];
   const text = frame.line.text;
-  const typedCount = Math.min(text.length, Math.floor(text.length * frame.lineProgress * 1.12));
+  const typedCount = Math.min(text.length, Math.ceil(text.length * frame.lineProgress));
   const typed = text.slice(0, typedCount);
   const ghost = text.slice(typedCount);
   const accent = "#FF3B30";

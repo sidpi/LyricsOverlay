@@ -147,7 +147,9 @@ internal static class HeadlessRenderer
         int LineIndex,
         IReadOnlyList<string> History,
         IReadOnlyList<string> Upcoming,
-        double PositionMs);
+        double PositionMs,
+        double LineStartMs,
+        double LineEndMs);
 
     private static Frame BuildFrame(PlaybackSnapshot? snapshot, LyricsResult? lyrics, string? explicitText,
         string[]? explicitHistory, string[]? explicitNext, double fraction)
@@ -203,7 +205,8 @@ internal static class HeadlessRenderer
                 }
             }
 
-            return new Frame(words, line.Text, index, history, upcoming, position);
+            return new Frame(words, line.Text, index, history, upcoming, position,
+                line.Time.TotalMilliseconds, nextTime.TotalMilliseconds);
         }
 
         return Synthetic(SampleLine, explicitHistory, fraction, explicitNext);
@@ -213,12 +216,11 @@ internal static class HeadlessRenderer
     {
         var line = new LyricLine(TimeSpan.Zero, text);
         var words = WordTiming.Build(line, TimeSpan.FromSeconds(5));
-        var position = words.Count == 0
-            ? 0
-            : words[Math.Clamp((int)(words.Count * fraction), 0, words.Count - 1)].StartMs + 40;
+        // The fraction spans the whole line window, so --position 1 is the end of the line.
+        var position = 5000 * fraction;
 
         return new Frame(words, text, history?.Length ?? 0, history ?? Array.Empty<string>(),
-            upcoming ?? Array.Empty<string>(), position);
+            upcoming ?? Array.Empty<string>(), position, 0, 5000);
     }
 
     private static void Draw(SKCanvas canvas, SKImageInfo info, OverlayStyle style, StyleKind kind,
@@ -275,6 +277,8 @@ internal static class HeadlessRenderer
             mono,
             frame.Words,
             positionMs,
+            frame.LineStartMs,
+            frame.LineEndMs,
             width,
             height,
             enter,

@@ -53,6 +53,8 @@ public partial class OverlayWindow : Window
     private DateTime _lineChangedAt = DateTime.UtcNow;
     private string? _previousLine;
     private string _lineText = string.Empty;
+    private double _lineStartMs;
+    private double _lineEndMs;
     private IReadOnlyList<TimedWord> _words = Array.Empty<TimedWord>();
     private readonly List<string> _history = new();
     private readonly List<string> _upcoming = new();
@@ -945,6 +947,19 @@ public partial class OverlayWindow : Window
             var line = document.Lines[index];
             _lineText = line.Text;
 
+            // The line's own window: its start to the next non-blank line, so a style's reveal
+            // reaches 100% exactly when the next line begins.
+            _lineStartMs = line.Time.TotalMilliseconds;
+            _lineEndMs = line.Time.TotalMilliseconds + 6000;
+            for (var i = index + 1; i < document.Lines.Count; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(document.Lines[i].Text))
+                {
+                    _lineEndMs = document.Lines[i].Time.TotalMilliseconds;
+                    break;
+                }
+            }
+
             var timings = _lyricsResult?.WordTimings;
             if (timings is not null && index < timings.Count && timings[index].Count > 0)
             {
@@ -981,6 +996,8 @@ public partial class OverlayWindow : Window
     {
         _lineIndex = -1;
         _lineText = string.Empty;
+        _lineStartMs = 0;
+        _lineEndMs = 0;
         _words = Array.Empty<TimedWord>();
         _previousLine = null;
         _history.Clear();
@@ -1119,6 +1136,8 @@ public partial class OverlayWindow : Window
             mono,
             _words,
             positionMs,
+            _lineStartMs,
+            _lineEndMs,
             width,
             height,
             enter,
