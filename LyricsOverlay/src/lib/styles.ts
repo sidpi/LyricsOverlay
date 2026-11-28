@@ -9,7 +9,8 @@ export const FALLBACK_STYLES: StyleOption[] = [
   { name: "Fisheye", description: "A tight stack bulging through a lens." },
   {
     name: "Code Style",
-    description: "Three lines of source; the newest lyric types out under a red cursor.",
+    description:
+      "A shell transcript: the last line as a muted // comment, the current line filling in after a red > prompt.",
   },
   {
     name: "Vine",
@@ -45,6 +46,7 @@ export const FALLBACK_FONTS = [
   "Georgia",
   "Consolas",
   "Cascadia Mono",
+  "Cascadia Code",
 ];
 
 export interface StyleLook {
@@ -116,6 +118,7 @@ const FONT_STACKS: Record<string, string> = {
   Georgia: 'Georgia, "Times New Roman", serif',
   Consolas: 'Consolas, "Cascadia Mono", ui-monospace, monospace',
   "Cascadia Mono": '"Cascadia Mono", Consolas, ui-monospace, monospace',
+  "Cascadia Code": '"Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace',
 };
 
 export const fontStack = (name: string) =>

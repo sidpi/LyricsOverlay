@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -20,8 +21,8 @@ internal static class HeadlessRenderer
 
     /// <summary>
     /// <c>--render out.png [--style Name] [--width 1000] [--height 240] [--text "…"]
-    /// [--history "older line|oldest line"] [--position 0.45] [--bg #0E0E12|transparent]
-    /// [--fullscreen]</c>
+    /// [--history "older line|oldest line"] [--next "next line|line after"] [--position 0.45]
+    /// [--bg #0E0E12|transparent] [--fullscreen]</c>
     /// </summary>
     public static async Task<int> RenderAsync(string[] args, int pathIndex)
     {
@@ -39,6 +40,7 @@ internal static class HeadlessRenderer
         var fraction = GetDoubleArg(args, "--position", 0.45);
         var explicitText = GetArg(args, "--text");
         var explicitHistory = GetArg(args, "--history")?.Split('|', StringSplitOptions.RemoveEmptyEntries);
+        var explicitNext = GetArg(args, "--next")?.Split('|', StringSplitOptions.RemoveEmptyEntries);
         var background = ParseBackground(GetArg(args, "--bg"));
         var fullScreen = args.Any(a => string.Equals(a, "--fullscreen", StringComparison.OrdinalIgnoreCase));
 
@@ -50,7 +52,7 @@ internal static class HeadlessRenderer
             lyrics = await new LyricsProvider().GetAsync(snapshot);
         }
 
-        var frame = BuildFrame(snapshot, lyrics, explicitText, explicitHistory, fraction);
+        var frame = BuildFrame(snapshot, lyrics, explicitText, explicitHistory, explicitNext, fraction);
 
         var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
         using var surface = SKSurface.Create(info);
@@ -59,7 +61,7 @@ internal static class HeadlessRenderer
 
         var regular = SKTypeface.FromFamilyName(style.Font, SKFontStyle.Normal) ?? SKTypeface.Default;
         var bold = SKTypeface.FromFamilyName(style.Font, SKFontStyle.Bold) ?? regular;
-        var mono = SKTypeface.FromFamilyName("Consolas", SKFontStyle.Normal) ?? regular;
+        var mono = TextFonts.Mono(regular);
 
         // Enter/alpha at their settled values: this is the frame the overlay draws mid-line.
         Draw(canvas, info, style, kind, regular, bold, mono, snapshot, lyrics, frame,
@@ -83,21 +85,78 @@ internal static class HeadlessRenderer
         return 0;
     }
 
+    /// <summary>
+    /// <c>--bench [--width 1000] [--height 240] [--iterations 240] [--text "…"]</c>: paints the
+    /// same settled frame in every style and reports milliseconds and managed bytes per frame.
+    /// It is how the render caches are checked: the numbers come from the real style pipeline,
+    /// not from a synthetic loop around a single draw call.
+    /// </summary>
+    public static void Benchmark(string[] args)
+    {
+        var style = OverlayStyle.Load();
+        var width = GetIntArg(args, "--width", 1000);
+        var height = GetIntArg(args, "--height", 240);
+        var iterations = GetIntArg(args, "--iterations", 240);
+        var text = GetArg(args, "--text") ?? SampleLine;
+        var frame = Synthetic(text, null, 0.45);
+
+        var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+        using var surface = SKSurface.Create(info);
+
+        var regular = SKTypeface.FromFamilyName(style.Font, SKFontStyle.Normal) ?? SKTypeface.Default;
+        var bold = SKTypeface.FromFamilyName(style.Font, SKFontStyle.Bold) ?? regular;
+        var mono = TextFonts.Mono(regular);
+        var background = new SKColor(14, 14, 18);
+
+        Console.WriteLine($"bench {width}x{height}, {iterations} frames/style, {frame.Words.Count} words");
+        Console.WriteLine("style               ms/frame  KB/frame");
+
+        foreach (var entry in StyleCatalog.All)
+        {
+            var kind = StyleCatalog.Parse(entry.Name);
+
+            void Paint()
+            {
+                surface.Canvas.Clear(background);
+                Draw(surface.Canvas, info, style, kind, regular, bold, mono, null, null, frame,
+                    frame.PositionMs, 210000, 1f, 1f, true, kind == StyleKind.KineticScatter);
+            }
+
+            for (var i = 0; i < 20; i++)
+            {
+                Paint(); // warm the caches before timing
+            }
+
+            var allocated = GC.GetAllocatedBytesForCurrentThread();
+            var watch = Stopwatch.StartNew();
+            for (var i = 0; i < iterations; i++)
+            {
+                Paint();
+            }
+
+            watch.Stop();
+            var perFrame = watch.Elapsed.TotalMilliseconds / iterations;
+            var perFrameKb = (GC.GetAllocatedBytesForCurrentThread() - allocated) / (double)iterations / 1024.0;
+            Console.WriteLine($"{entry.Name,-18} {perFrame,7:0.00} {perFrameKb,10:0.0}");
+        }
+    }
+
     private sealed record Frame(
         IReadOnlyList<TimedWord> Words,
         string LineText,
         int LineIndex,
         IReadOnlyList<string> History,
+        IReadOnlyList<string> Upcoming,
         double PositionMs);
 
     private static Frame BuildFrame(PlaybackSnapshot? snapshot, LyricsResult? lyrics, string? explicitText,
-        string[]? explicitHistory, double fraction)
+        string[]? explicitHistory, string[]? explicitNext, double fraction)
     {
         fraction = Math.Clamp(fraction, 0, 1);
 
         if (!string.IsNullOrWhiteSpace(explicitText))
         {
-            return Synthetic(explicitText, explicitHistory, fraction);
+            return Synthetic(explicitText, explicitHistory, fraction, explicitNext);
         }
 
         if (lyrics?.Document is { Lines.Count: > 0 } document)
@@ -135,13 +194,22 @@ internal static class HeadlessRenderer
                 }
             }
 
-            return new Frame(words, line.Text, index, history, position);
+            var upcoming = new List<string>();
+            for (var i = index + 1; i < document.Lines.Count && upcoming.Count < 2; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(document.Lines[i].Text))
+                {
+                    upcoming.Add(document.Lines[i].Text);
+                }
+            }
+
+            return new Frame(words, line.Text, index, history, upcoming, position);
         }
 
-        return Synthetic(SampleLine, explicitHistory, fraction);
+        return Synthetic(SampleLine, explicitHistory, fraction, explicitNext);
     }
 
-    private static Frame Synthetic(string text, string[]? history, double fraction)
+    private static Frame Synthetic(string text, string[]? history, double fraction, string[]? upcoming = null)
     {
         var line = new LyricLine(TimeSpan.Zero, text);
         var words = WordTiming.Build(line, TimeSpan.FromSeconds(5));
@@ -149,7 +217,8 @@ internal static class HeadlessRenderer
             ? 0
             : words[Math.Clamp((int)(words.Count * fraction), 0, words.Count - 1)].StartMs + 40;
 
-        return new Frame(words, text, history?.Length ?? 0, history ?? Array.Empty<string>(), position);
+        return new Frame(words, text, history?.Length ?? 0, history ?? Array.Empty<string>(),
+            upcoming ?? Array.Empty<string>(), position);
     }
 
     private static void Draw(SKCanvas canvas, SKImageInfo info, OverlayStyle style, StyleKind kind,
@@ -212,6 +281,7 @@ internal static class HeadlessRenderer
             alpha,
             playing,
             frame.History,
+            frame.Upcoming,
             frame.LineText,
             WordTiming.ContainsCjk(frame.LineText),
             frame.LineIndex);

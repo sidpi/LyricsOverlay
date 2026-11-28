@@ -43,6 +43,19 @@ internal static class ScatterRenderer
     private static readonly SKColor BadgeFill = new(0xFF, 0xFF, 0xFF);
     private static readonly SKColor BadgeText = new(0x0A, 0x0A, 0x0A);
 
+    private const int LayoutLimit = 8;
+
+    private static readonly object LayoutGate = new();
+    private static readonly Dictionary<LayoutKey, Placed[]> Layouts = new();
+
+    private readonly record struct LayoutKey(
+        ulong Text,
+        int Seed,
+        int BaseSize,
+        int Width,
+        int Height,
+        string Family);
+
     private struct Placed
     {
         public SKRect Box;
@@ -188,7 +201,69 @@ internal static class ScatterRenderer
         _ => 1f,
     };
 
+    /// <summary>
+    /// Placement for one line and one surface. The repulsion pass is a 30-iteration all-pairs
+    /// solve and its inputs only change when the line, seed, font scale or stage size does, so
+    /// the settled result is cached instead of recomputed on every frame of the line.
+    /// </summary>
     private static Placed[] Layout(string[] texts, int count, int seed, float baseSize,
+        SKTypeface typeface, float left, float top, float right, float bottom)
+    {
+        if (count == 0)
+        {
+            return new Placed[texts.Length];
+        }
+
+        var key = LayoutKeyOf(texts, seed, baseSize, typeface, left, top, right, bottom);
+
+        lock (LayoutGate)
+        {
+            if (Layouts.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+        }
+
+        var placed = BuildLayout(texts, count, seed, baseSize, typeface, left, top, right, bottom);
+
+        lock (LayoutGate)
+        {
+            if (Layouts.Count >= LayoutLimit)
+            {
+                Layouts.Clear();
+            }
+
+            Layouts[key] = placed;
+        }
+
+        return placed;
+    }
+
+    private static LayoutKey LayoutKeyOf(string[] texts, int seed, float baseSize,
+        SKTypeface typeface, float left, float top, float right, float bottom)
+    {
+        var hash = 1469598103934665603UL;
+        foreach (var text in texts)
+        {
+            foreach (var ch in text)
+            {
+                hash = (hash ^ ch) * 1099511628211UL;
+            }
+
+            // Empty tokens still take a slot in the layout, so the separator is part of the key.
+            hash = (hash ^ '\u0001') * 1099511628211UL;
+        }
+
+        return new LayoutKey(
+            hash,
+            seed,
+            (int)MathF.Round(baseSize * 16f),
+            (int)MathF.Round((right - left) * 4f),
+            (int)MathF.Round((bottom - top) * 4f),
+            typeface.FamilyName ?? string.Empty);
+    }
+
+    private static Placed[] BuildLayout(string[] texts, int count, int seed, float baseSize,
         SKTypeface typeface, float left, float top, float right, float bottom)
     {
         var placed = new Placed[texts.Length];
@@ -223,17 +298,15 @@ internal static class ScatterRenderer
 
             // A word never exceeds the safe stage: shrink it rather than let it clip.
             var maxWidth = width * 0.94f;
-            using (var measure = new SKFont(typeface, size) { Subpixel = true })
+            var measure = RenderCache.Font(typeface, size, subpixelEdging: false);
+            var natural = measure.MeasureText(text) + size * PadXEm * 2f;
+            if (natural > maxWidth && natural > 0f)
             {
-                var natural = measure.MeasureText(text) + size * PadXEm * 2f;
-                if (natural > maxWidth && natural > 0f)
-                {
-                    size *= maxWidth / natural;
-                }
+                size *= maxWidth / natural;
             }
 
             size = Math.Max(18f, size);
-            using var font = new SKFont(typeface, size) { Subpixel = true };
+            var font = RenderCache.Font(typeface, size);
             var textWidth = font.MeasureText(text);
             var boxWidth = textWidth + size * PadXEm * 2f;
             var boxHeight = size * LineHeight + size * PadYEm * 2f;
@@ -444,7 +517,7 @@ internal static class ScatterRenderer
     private static void DrawPlain(SKCanvas canvas, SKTypeface typeface, string text, float size,
         SKPoint center, float rotation, float scale, float alpha)
     {
-        using var font = new SKFont(typeface, size) { Subpixel = true, Edging = SKFontEdging.SubpixelAntialias };
+        var font = RenderCache.Font(typeface, size);
         using var paint = new SKPaint { IsAntialias = true, Color = WithAlpha(OffWhite, alpha) };
         var metrics = font.Metrics;
         var textWidth = font.MeasureText(text);
@@ -462,7 +535,7 @@ internal static class ScatterRenderer
     private static void DrawBadge(SKCanvas canvas, SKTypeface typeface, string text, float size,
         SKPoint center, float rotation, float scale, float alpha, SKColor glow)
     {
-        using var font = new SKFont(typeface, size) { Subpixel = true, Edging = SKFontEdging.SubpixelAntialias };
+        var font = RenderCache.Font(typeface, size);
         var metrics = font.Metrics;
         var textWidth = font.MeasureText(text);
         var padX = size * PadXEm;
@@ -481,7 +554,7 @@ internal static class ScatterRenderer
             {
                 IsAntialias = true,
                 Color = WithAlpha(glow, alpha * 0.30f),
-                MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, size * 0.22f),
+                MaskFilter = RenderCache.Blur(size * 0.22f),
             };
             canvas.DrawRect(new SKRect(-boxWidth / 2f - 6f, -boxHeight / 2f - 4f,
                 boxWidth / 2f + 6f, boxHeight / 2f + 4f), halo);

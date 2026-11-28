@@ -55,6 +55,7 @@ public partial class OverlayWindow : Window
     private string _lineText = string.Empty;
     private IReadOnlyList<TimedWord> _words = Array.Empty<TimedWord>();
     private readonly List<string> _history = new();
+    private readonly List<string> _upcoming = new();
 
 
     private SKTypeface? _regular;
@@ -956,11 +957,22 @@ public partial class OverlayWindow : Window
                     : line.Time + TimeSpan.FromSeconds(6);
                 _words = WordTiming.Build(line, nextTime);
             }
+
+            // The next two lines, so a style can show where the song is heading.
+            _upcoming.Clear();
+            for (var i = index + 1; i < document.Lines.Count && _upcoming.Count < 2; i++)
+            {
+                if (!string.IsNullOrWhiteSpace(document.Lines[i].Text))
+                {
+                    _upcoming.Add(document.Lines[i].Text);
+                }
+            }
         }
         else
         {
             _words = Array.Empty<TimedWord>();
             _lineText = string.Empty;
+            _upcoming.Clear();
         }
     }
 
@@ -972,6 +984,7 @@ public partial class OverlayWindow : Window
         _words = Array.Empty<TimedWord>();
         _previousLine = null;
         _history.Clear();
+        _upcoming.Clear();
         _lineChangedAt = DateTime.UtcNow;
     }
 
@@ -1021,9 +1034,7 @@ public partial class OverlayWindow : Window
 
         _regular ??= SKTypeface.FromFamilyName(_style.Font, SKFontStyle.Normal) ?? SKTypeface.Default;
         _bold ??= SKTypeface.FromFamilyName(_style.Font, SKFontStyle.Bold) ?? _regular;
-        _mono ??= SKTypeface.FromFamilyName("Consolas", SKFontStyle.Normal)
-                 ?? SKTypeface.FromFamilyName("Cascadia Mono", SKFontStyle.Normal)
-                 ?? _regular;
+        _mono ??= TextFonts.Mono(_regular);
 
         float width = info.Width;
         float height = info.Height;
@@ -1114,6 +1125,7 @@ public partial class OverlayWindow : Window
             alpha,
             _playing && !_paused,
             _history,
+            _upcoming,
             _lineText,
             WordTiming.ContainsCjk(_lineText),
             CurrentLineIndex(result.Document, positionMs));

@@ -53,6 +53,21 @@ public partial class App : Application
             return;
         }
 
+        if (e.Args.Any(a => string.Equals(a, "--bench", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                Rendering.HeadlessRenderer.Benchmark(e.Args);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"bench failed: {ex}");
+            }
+
+            Shutdown();
+            return;
+        }
+
         if (e.Args.Any(a => string.Equals(a, "--self-test", StringComparison.OrdinalIgnoreCase)))
         {
             // Run off the dispatcher: awaiting on the WPF synchronization context here would deadlock.

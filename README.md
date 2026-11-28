@@ -13,7 +13,7 @@
 
   <p>
     <a href="https://github.com/sidpi/LyricsOverlay/releases">
-      <img src="https://img.shields.io/badge/Version-1.1.3-F97316?style=for-the-badge&labelColor=0F172A" alt="Version 1.1.3" />
+      <img src="https://img.shields.io/badge/Version-1.1.4-F97316?style=for-the-badge&labelColor=0F172A" alt="Version 1.1.4" />
     </a>
     <img src="https://img.shields.io/badge/Platform-Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white&labelColor=0F172A" alt="Windows" />
     <img src="https://img.shields.io/badge/.NET-10-512BD4?style=for-the-badge&logo=dotnet&logoColor=white&labelColor=0F172A" alt=".NET 10" />
@@ -140,7 +140,7 @@ Each preset brings its own stage ambience and signature accent inside the studio
   <tr>
     <td width="50%" valign="top">
       <img src="https://img.shields.io/badge/Code_Style-%23FF3B30-FF3B30?style=for-the-badge&labelColor=0F172A" alt="Code Style #FF3B30" />&nbsp;<kbd>Any Mode</kbd><br /><br />
-      Three lines of live source code where the newest lyric types out under a red cursor.
+      A shell transcript: the last line sits above as a muted `//` comment, the current line fills in after a red `>` prompt.
     </td>
     <td width="50%" valign="top">
       <img src="https://img.shields.io/badge/Vine-%2339D3A6-39D3A6?style=for-the-badge&labelColor=0F172A" alt="Vine #39D3A6" />&nbsp;<kbd>Any Mode</kbd><br /><br />
@@ -246,6 +246,8 @@ The desktop host listens to `GlobalSystemMediaTransportControlsSessionManager`, 
 
 The **Studio** is a Vite + React bundle inside WebView2 that reads and patches live state over `\\.\pipe\LyricOverlayControl`. When opened in a standard browser, the bridge safely becomes a no-op so you can preview and develop the UI standalone.
 
+The studio previews are DOM/CSS re-creations that loop a demo track at 60 fps, while the overlay paints the live track with Skia at 30 fps. They are tuned to look the same, not pixel-identical: treat a preview as a close approximation of the style, not a frame-accurate mirror.
+
 ---
 
 ## 🎛️ Studio Controls
@@ -253,7 +255,7 @@ The **Studio** is a Vite + React bundle inside WebView2 that reads and patches l
 | Tab | What You Can Customize |
 |---|---|
 | <kbd>Size</kbd> | Global text scale and overlay window sizing. |
-| <kbd>Font</kbd> | System typefaces including **SF Pro Display**, **Segoe UI**, **Bahnschrift**, **Georgia**, **Consolas**, and **Cascadia Mono**. |
+| <kbd>Font</kbd> | System typefaces including **SF Pro Display**, **Segoe UI**, **Bahnschrift**, **Georgia**, **Consolas**, **Cascadia Mono**, and **Cascadia Code**. |
 | <kbd>Screen</kbd> | Full-screen karaoke mode, hidden toggle, and multi-monitor display targeting. |
 | <kbd>Aesthetics</kbd> | Text, highlight, and secondary colors; album-art palette matching; lyric provider; millisecond sync offset; keep-awake; and auto-start. |
 
@@ -353,6 +355,7 @@ Outputs the active media session, resolved track metadata, selected lyric provid
 | <kbd>--self-test</kbd> | Runs full pipeline diagnostics directly in the terminal. |
 | <kbd>--tray</kbd> | Starts minimized directly in the system tray (used by Windows auto-start). |
 | <kbd>--render ...</kbd> | Launches the headless renderer used for studio style previews. |
+| <kbd>--bench</kbd> | Paints every style headlessly and reports milliseconds and managed bytes per frame. |
 
 Control requests and renderer failures are automatically logged by the diagnostics module.
 

@@ -14,6 +14,13 @@ internal static class KaraokeRenderer
     private const float LineBaseSize = 44f;
     private const float SecondaryBaseSize = 21f;
 
+    // Configured per frame, then reused: the colours change, the paint object does not need to.
+    private static readonly SKPaint ShadowPaint = new() { IsAntialias = true };
+    private static readonly SKPaint BasePaint = new() { IsAntialias = true };
+    private static readonly SKPaint HighlightPaint = new() { IsAntialias = true };
+    private static readonly SKPaint GlowPaint = new() { IsAntialias = true };
+    private static readonly SKPaint FeatherPaint = new() { IsAntialias = true };
+
     public static void DrawHeader(SKCanvas canvas, OverlayStyle style, SKTypeface typeface,
         string title, string artist, float width, float height, float alpha, bool leftAligned = false)
     {
@@ -34,21 +41,15 @@ internal static class KaraokeRenderer
 
         // Full-screen header: pinned to the top-left, shrunk rather than clipped for long titles.
         var size = 14f * scale;
-        using (var measure = new SKFont(typeface, size) { Subpixel = true })
+        var measure = RenderCache.Font(typeface, size, subpixelEdging: false);
+        var measured = measure.MeasureText(text);
+        var maxWidth = width * 0.55f;
+        if (measured > maxWidth && measured > 0)
         {
-            var measured = measure.MeasureText(text);
-            var maxWidth = width * 0.55f;
-            if (measured > maxWidth && measured > 0)
-            {
-                size *= maxWidth / measured;
-            }
+            size *= maxWidth / measured;
         }
 
-        using var font = new SKFont(typeface, Math.Max(8f, size))
-        {
-            Subpixel = true,
-            Edging = SKFontEdging.SubpixelAntialias,
-        };
+        var font = RenderCache.Font(typeface, Math.Max(8f, size));
         using var paint = new SKPaint { IsAntialias = true, Color = WithAlpha(style.Secondary, alpha * 0.85f) };
         var metrics = font.Metrics;
         // Pinned to top: 2.5% down, left: 3.5% in, measured against the live viewport.
@@ -72,51 +73,34 @@ internal static class KaraokeRenderer
 
         var baseSize = LineBaseSize * (float)style.TextScale;
 
-        using var measureFont = new SKFont(typeface, baseSize) { Subpixel = true };
-        var spaceEstimate = measureFont.MeasureText(" ");
-        var totalEstimate = 0f;
-        for (var i = 0; i < words.Count; i++)
-        {
-            totalEstimate += measureFont.MeasureText(words[i].Text) + (i > 0 && !words[i].Glued ? spaceEstimate : 0);
-        }
-
-        var maxWidth = width * 0.94f;
-        var fit = totalEstimate > maxWidth && totalEstimate > 0 ? maxWidth / totalEstimate : 1f;
-        var size = Math.Max(18f, baseSize * fit);
-
-        using var font = new SKFont(typeface, size) { Subpixel = true, Edging = SKFontEdging.SubpixelAntialias };
+        // Measured once per line, not twice per frame: widths, fitted size and metrics are cached
+        // against the line text, typeface, text scale and available width.
+        var layout = LyricLayoutCache.Get(typeface, words, baseSize, width * 0.94f);
+        var size = layout.Size;
+        var metrics = layout.Metrics;
+        var widths = layout.Widths;
+        var wordSpace = layout.Space;
+        var lineWidth = layout.LineWidth;
 
         // Blurred passes use grayscale AA: subpixel-positioned glyphs + a mask filter land a
         // fraction of a pixel off, which reads as the glow sitting left/below the letters.
-        using var glowFont = new SKFont(typeface, size) { Subpixel = false, Edging = SKFontEdging.Antialias };
-        var metrics = font.Metrics;
-        var wordSpace = font.MeasureText(" ");
-
-        var widths = new float[words.Count];
-        var lineWidth = 0f;
-        for (var i = 0; i < words.Count; i++)
-        {
-            widths[i] = font.MeasureText(words[i].Text);
-            lineWidth += widths[i] + (i > 0 && !words[i].Glued ? wordSpace : 0);
-        }
+        var font = RenderCache.Font(typeface, size);
+        var glowFont = RenderCache.Font(typeface, size, subpixelEdging: false, subpixel: false);
 
         // Padding covers side bearings and descenders so no letter gets clipped.
         var pad = Math.Max(3f, size * 0.16f);
         var blur = Math.Max(4f, size * 0.20f);
 
-        using var shadowPaint = new SKPaint
-        {
-            IsAntialias = true,
-            Color = new SKColor(0, 0, 0, 150),
-            MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, blur * 0.5f),
-        };
-        using var basePaint = new SKPaint { IsAntialias = true };
-        using var highlightPaint = new SKPaint { IsAntialias = true };
-        using var glowPaint = new SKPaint
-        {
-            IsAntialias = true,
-            MaskFilter = style.Glow ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, blur) : null,
-        };
+        // Slightly wider and darker than the old halo, so pastel artwork still reads over a
+        // bright page without a second blurred pass over the whole line.
+        var shadowPaint = ShadowPaint;
+        shadowPaint.Color = new SKColor(0, 0, 0, 165);
+        shadowPaint.MaskFilter = RenderCache.Blur(blur * 0.55f);
+
+        var basePaint = BasePaint;
+        var highlightPaint = HighlightPaint;
+        var glowPaint = GlowPaint;
+        glowPaint.MaskFilter = style.Glow ? RenderCache.Blur(blur) : null;
 
         var baseline = centerY + translateY - (metrics.Ascent + metrics.Descent) / 2f;
         var x = width / 2f - lineWidth / 2f;
@@ -188,10 +172,36 @@ internal static class KaraokeRenderer
                     MathF.Ceiling(baseline + metrics.Descent + pad));
 
                 highlightPaint.Color = WithAlpha(style.Highlight, lineAlpha * 0.96f);
-                canvas.Save();
-                canvas.ClipRect(fillClip);
-                canvas.DrawText(word.Text, x, baseline, SKTextAlign.Left, font, highlightPaint);
-                canvas.Restore();
+
+                // The leading edge of a half-sung word fades in over a few pixels instead of
+                // ending on a hard clip line, so the fill sweeps rather than steps.
+                var edge = x + wordWidth * fill;
+                var feather = MathF.Min(8f, size * 0.16f);
+                if (fill < 1f && wordWidth * fill > feather * 2f)
+                {
+                    var crisp = new SKRect(fillClip.Left, fillClip.Top, edge - feather + 0.5f, fillClip.Bottom);
+                    canvas.Save();
+                    canvas.ClipRect(crisp);
+                    canvas.DrawText(word.Text, x, baseline, SKTextAlign.Left, font, highlightPaint);
+                    canvas.Restore();
+
+                    var strip = new SKRect(edge - feather, fillClip.Top, edge + pad * 0.5f, fillClip.Bottom);
+                    FeatherPaint.Shader = RenderCache.Feather(highlightPaint.Color, feather);
+                    canvas.Save();
+                    canvas.ClipRect(strip);
+                    // The gradient starts at the local origin, so move it to the feathered edge.
+                    canvas.Translate(edge - feather, 0f);
+                    canvas.DrawText(word.Text, x - (edge - feather), baseline, SKTextAlign.Left, font, FeatherPaint);
+                    canvas.Restore();
+                    FeatherPaint.Shader = null;
+                }
+                else
+                {
+                    canvas.Save();
+                    canvas.ClipRect(fillClip);
+                    canvas.DrawText(word.Text, x, baseline, SKTextAlign.Left, font, highlightPaint);
+                    canvas.Restore();
+                }
             }
 
             canvas.Restore();
@@ -246,7 +256,7 @@ internal static class KaraokeRenderer
         }
 
         var baseSize = SecondaryBaseSize * (float)style.TextScale * sizeFactor;
-        using var measureFont = new SKFont(typeface, baseSize) { Subpixel = true };
+        var measureFont = RenderCache.Font(typeface, baseSize, subpixelEdging: false);
         var measured = measureFont.MeasureText(text);
         var maxWidth = width * 0.94f;
         var size = measured > maxWidth && measured > 0 ? baseSize * maxWidth / measured : baseSize;
@@ -295,7 +305,7 @@ internal static class KaraokeRenderer
             return;
         }
 
-        using var font = new SKFont(typeface, Math.Max(8f, size)) { Subpixel = true, Edging = SKFontEdging.SubpixelAntialias };
+        var font = RenderCache.Font(typeface, Math.Max(8f, size));
         using var paint = new SKPaint { IsAntialias = true, Color = color };
 
         var metrics = font.Metrics;

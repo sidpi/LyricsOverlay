@@ -22,7 +22,7 @@ public static class StyleCatalog
     {
         (StyleKind.Kinetic, "Kinetic", "Words fill one at a time, centred."),
         (StyleKind.Fisheye, "Fisheye", "A tight stack bulging through a lens."),
-        (StyleKind.Codestyle, "Code Style", "Three lines of source; the newest lyric types out under a red cursor."),
+        (StyleKind.Codestyle, "Code Style", "A shell transcript: the last line as a muted // comment, the current line filling in after a red > prompt."),
         (StyleKind.Branches, "Vine", "A wavy vine with a glowing tip; tendrils grow out as the tip reaches each word."),
         (StyleKind.Constellation, "Constellation", "Words as stars in a loose sky, drawn in time; the sung star flares."),
         (StyleKind.Bubble, "Bubble", "Recent lines as chat bubbles."),
@@ -36,7 +36,7 @@ public static class StyleCatalog
     public static readonly IReadOnlyList<string> Fonts = new[]
     {
         "SF Pro Display", "Segoe UI", "Segoe UI Variable Display", "Bahnschrift",
-        "Georgia", "Consolas", "Cascadia Mono",
+        "Georgia", "Consolas", "Cascadia Mono", "Cascadia Code",
     };
 
     public static StyleKind Parse(string? value)

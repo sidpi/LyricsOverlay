@@ -21,6 +21,7 @@ internal readonly record struct StyleContext(
     float Alpha,
     bool Playing,
     IReadOnlyList<string> History,
+    IReadOnlyList<string> Upcoming,
     string LineText,
     bool Compact,
     int LineIndex);
@@ -102,86 +103,64 @@ internal static class StyleRenderers
     }
 
     /// <summary>
-    /// Three lines of source: the newest lyric typing out in lavender under a red block
-    /// cursor, older lines scrolling up and fading into smaller, dimmer code.
+    /// A shell transcript: the line just sung stays above as a muted comment, and the current
+    /// line follows a red prompt, filling in as it is sung.
     /// </summary>
     private static void DrawCodestyle(in StyleContext ctx)
     {
-        var lines = ctx.History.TakeLast(2).Concat(new[] { ctx.LineText })
-            .Where(line => !string.IsNullOrWhiteSpace(line))
-            .ToList();
+        var previous = ctx.History.LastOrDefault(line => !string.IsNullOrWhiteSpace(line));
+        var text = ctx.LineText;
 
-        if (lines.Count == 0)
+        if (previous is null && string.IsNullOrWhiteSpace(text))
         {
             return;
         }
 
         var ease = KaraokeRenderer.EaseOutCubic(ctx.Enter);
         var scale = (float)ctx.Style.TextScale;
-        var activeSize = Math.Max(14f, 23f * scale);
-        var rowGap = activeSize * 1.85f;
-        var bottomY = ctx.Height * 0.80f;
-        var left = ctx.Width * 0.10f;
-        var maxWidth = ctx.Width * 0.84f;
+        var activeSize = Math.Max(15f, 26f * scale);
+        var commentSize = Math.Max(9f, activeSize * 0.60f);
 
-        // Keep the faint top line clear of the track header, even at a large text scale.
-        var topMargin = ctx.Height * 0.18f + activeSize * 0.55f;
-        if (lines.Count > 1)
+        var left = ctx.Width * 0.09f;
+        var maxWidth = ctx.Width * 0.82f;
+
+        // The block sits in the lower half: the comment above, the active line, queued lines below.
+        var upcoming = ctx.Upcoming;
+        var lift = (1f - ease) * activeSize * 0.55f;
+        var activeY = ctx.Height * (upcoming.Count > 0 ? 0.60f : 0.67f) + lift;
+        var commentY = Math.Max(ctx.Height * 0.24f, activeY - activeSize * 1.35f) + lift * 0.4f;
+
+        // Queued rows share the room between the active line and the progress bar.
+        var upcomingGap = activeSize * 1.15f;
+        if (upcoming.Count > 0)
         {
-            var room = bottomY - topMargin;
-            rowGap = Math.Min(rowGap, Math.Max(activeSize * 1.15f, room / (lines.Count - 1)));
+            var room = ctx.Height * 0.86f - activeY;
+            upcomingGap = Math.Min(upcomingGap, Math.Max(activeSize * 0.75f, room / upcoming.Count));
         }
 
         var lavender = new SKColor(0x9B, 0xB1, 0xFF);
-        var cursorRed = new SKColor(0xFF, 0x3B, 0x30);
+        var promptRed = new SKColor(0xFF, 0x3B, 0x30);
 
-        using var basePaint = new SKPaint { IsAntialias = true };
-        using var softPaint = new SKPaint
-        {
-            IsAntialias = true,
-            MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 1.2f),
-        };
-        using var hazyPaint = new SKPaint
-        {
-            IsAntialias = true,
-            MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 2.2f),
-        };
-        using var gutterPaint = new SKPaint { IsAntialias = true };
+        using var promptPaint = new SKPaint { IsAntialias = true };
+        using var commentPaint = new SKPaint { IsAntialias = true, MaskFilter = RenderCache.Blur(1.4f) };
+        using var ghostPaint = new SKPaint { IsAntialias = true };
+        using var litPaint = new SKPaint { IsAntialias = true };
         using var glowPaint = new SKPaint
         {
             IsAntialias = true,
-            MaskFilter = ctx.Style.Glow ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 7f) : null,
+            MaskFilter = ctx.Style.Glow ? RenderCache.Blur(9f) : null,
         };
-        using var litPaint = new SKPaint { IsAntialias = true };
-        using var cursorPaint = new SKPaint { IsAntialias = true, Color = cursorRed };
 
-        for (var depth = lines.Count - 1; depth >= 0; depth--)
+        // Previous line, as a comment in the same face: smaller, dim, and slightly out of focus.
+        if (previous is not null)
         {
-            var index = lines.Count - 1 - depth;
-            var isActive = depth == 0;
-            var body = lines[index].Replace("\"", "'").Trim();
-            var code = "lyric(\"" + body + "\");";
-            var number = ctx.LineIndex - depth;
-            var gutter = number >= 0
-                ? number.ToString("00", System.Globalization.CultureInfo.InvariantCulture)
-                : "··";
-
-            var targetSize = isActive ? activeSize : activeSize * (depth == 1 ? 0.76f : 0.56f);
-            var size = activeSize + (targetSize - activeSize) * ease;
-
-            // The whole stack scrolls one row up as a new line settles at the bottom.
-            var centerY = bottomY - depth * rowGap + (1f - ease) * rowGap;
-
-            var targetAlpha = depth == 0 ? 1f : depth == 1 ? 0.45f : 0.22f;
-            var alpha = ctx.Alpha * (isActive ? ease : 0.9f + (targetAlpha - 0.9f) * ease);
-
-            using var font = new SKFont(ctx.Mono, size) { Subpixel = true, Edging = SKFontEdging.SubpixelAntialias };
-            var metrics = font.Metrics;
-            var gutterWidth = font.MeasureText(gutter);
-            var fullWidth = gutterWidth + 26f + font.MeasureText(code);
-            var fit = fullWidth > maxWidth && fullWidth > 0 ? maxWidth / fullWidth : 1f;
-            var baseline = centerY - (metrics.Ascent + metrics.Descent) / 2f;
-            var codeX = left + gutterWidth + 26f;
+            var commentFont = RenderCache.Font(ctx.Mono, commentSize);
+            var commentMetrics = commentFont.Metrics;
+            const string prefix = "// ";
+            var body = previous.Trim();
+            var rowWidth = commentFont.MeasureText(prefix) + commentFont.MeasureText(body);
+            var fit = rowWidth > maxWidth && rowWidth > 0 ? maxWidth / rowWidth : 1f;
+            var baseline = commentY - (commentMetrics.Ascent + commentMetrics.Descent) / 2f;
 
             ctx.Canvas.Save();
             if (fit < 1f)
@@ -191,62 +170,100 @@ internal static class StyleRenderers
                 ctx.Canvas.Translate(-left, -baseline);
             }
 
-            basePaint.Color = WithAlpha(lavender, alpha * (isActive ? 0.40f : 1f));
-            gutterPaint.Color = WithAlpha(lavender, alpha * (isActive ? 0.80f : 0.45f));
-            var codePaint = depth switch
-            {
-                1 => softPaint,
-                >= 2 => hazyPaint,
-                _ => basePaint,
-            };
-            codePaint.Color = basePaint.Color;
-
-            ctx.Canvas.DrawCircle(left - 12f, baseline - size * 0.32f, Math.Max(1.8f, size * 0.11f), gutterPaint);
-            ctx.Canvas.DrawText(gutter, left, baseline, SKTextAlign.Left, font, gutterPaint);
-            ctx.Canvas.DrawText(code, codeX, baseline, SKTextAlign.Left, font, codePaint);
-
-            if (isActive)
-            {
-                const string head = "lyric(\"";
-                var revealed = Math.Clamp(head.Length + SungFraction(ctx) * body.Length, 0f, code.Length);
-                var whole = (int)Math.Floor(revealed);
-                var fraction = revealed - whole;
-                var cursorX = codeX + font.MeasureText(code[..whole]);
-                if (whole < code.Length)
-                {
-                    cursorX += font.MeasureText(code.Substring(whole, 1)) * fraction;
-                }
-
-                if (ctx.Style.Glow)
-                {
-                    glowPaint.Color = WithAlpha(lavender, alpha * 0.55f);
-                    ctx.Canvas.Save();
-                    ctx.Canvas.ClipRect(new SKRect(left - 8f, baseline + metrics.Ascent - 8f,
-                        cursorX + 8f, baseline + metrics.Descent + 8f));
-                    ctx.Canvas.DrawText(code, codeX, baseline, SKTextAlign.Left, font, glowPaint);
-                    ctx.Canvas.Restore();
-                }
-
-                if (whole > 0)
-                {
-                    litPaint.Color = WithAlpha(lavender, alpha);
-                    ctx.Canvas.Save();
-                    ctx.Canvas.ClipRect(new SKRect(left, baseline + metrics.Ascent,
-                        cursorX, baseline + metrics.Descent));
-                    ctx.Canvas.DrawText(code, codeX, baseline, SKTextAlign.Left, font, litPaint);
-                    ctx.Canvas.Restore();
-                }
-
-                // The solid red block cursor rides the typing edge.
-                var cursorHeight = (metrics.Descent - metrics.Ascent) * 0.94f;
-                var cursorWidth = Math.Max(2.4f, size * 0.52f);
-                var cursorTop = baseline + metrics.Ascent + (metrics.Descent - metrics.Ascent) * 0.03f;
-                ctx.Canvas.DrawRect(new SKRect(cursorX, cursorTop,
-                    cursorX + cursorWidth, cursorTop + cursorHeight), cursorPaint);
-            }
-
+            commentPaint.Color = WithAlpha(lavender, ctx.Alpha * ease * 0.52f);
+            ctx.Canvas.DrawText(prefix, left, baseline, SKTextAlign.Left, commentFont, commentPaint);
+            commentPaint.Color = WithAlpha(lavender, ctx.Alpha * ease * 0.34f);
+            ctx.Canvas.DrawText(body, left + commentFont.MeasureText(prefix), baseline,
+                SKTextAlign.Left, commentFont, commentPaint);
             ctx.Canvas.Restore();
         }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        var font = RenderCache.Font(ctx.Mono, activeSize);
+        var metrics = font.Metrics;
+        const string prompt = ">";
+        var textX = left + font.MeasureText(prompt) + activeSize * 0.60f;
+        var fullWidth = textX - left + font.MeasureText(text);
+        var rowFit = fullWidth > maxWidth && fullWidth > 0 ? maxWidth / fullWidth : 1f;
+        var rowBaseline = activeY - (metrics.Ascent + metrics.Descent) / 2f;
+
+        ctx.Canvas.Save();
+        if (rowFit < 1f)
+        {
+            ctx.Canvas.Translate(left, rowBaseline);
+            ctx.Canvas.Scale(rowFit, rowFit);
+            ctx.Canvas.Translate(-left, -rowBaseline);
+        }
+
+        promptPaint.Color = WithAlpha(promptRed, ctx.Alpha * ease);
+        ctx.Canvas.DrawText(prompt, left, rowBaseline, SKTextAlign.Left, font, promptPaint);
+
+        // The unsung remainder stays quiet, so the lit part reads as a live reveal.
+        ghostPaint.Color = WithAlpha(lavender, ctx.Alpha * ease * 0.30f);
+        ctx.Canvas.DrawText(text, textX, rowBaseline, SKTextAlign.Left, font, ghostPaint);
+
+        var revealed = SungFraction(ctx) * text.Length;
+        var whole = Math.Clamp((int)Math.Floor(revealed), 0, text.Length);
+        var fraction = revealed - whole;
+        var litWidth = font.MeasureText(text[..whole]);
+
+        if (whole > 0)
+        {
+            if (ctx.Style.Glow)
+            {
+                glowPaint.Color = WithAlpha(lavender, ctx.Alpha * ease * 0.50f);
+                DrawTextUpTo(ctx.Canvas, text, textX, rowBaseline, font, glowPaint, litWidth, 10f);
+            }
+
+            litPaint.Color = WithAlpha(lavender, ctx.Alpha * ease);
+            DrawTextUpTo(ctx.Canvas, text, textX, rowBaseline, font, litPaint, litWidth, 2f);
+        }
+
+        // A partly sung letter brightens smoothly instead of popping in whole.
+        if (whole < text.Length && fraction > 0.01f)
+        {
+            var partial = font.MeasureText(text.Substring(whole, 1)) * fraction;
+            litPaint.Color = WithAlpha(lavender, ctx.Alpha * ease);
+            ctx.Canvas.Save();
+            ctx.Canvas.ClipRect(new SKRect(textX + litWidth, rowBaseline + metrics.Ascent - 1f,
+                textX + litWidth + partial, rowBaseline + metrics.Descent + 1f));
+            ctx.Canvas.DrawText(text, textX, rowBaseline, SKTextAlign.Left, font, litPaint);
+            ctx.Canvas.Restore();
+        }
+
+        // Queued lines: same text column, smaller and dimmer, each behind its own muted prompt.
+        for (var i = 0; i < upcoming.Count; i++)
+        {
+            var size = activeSize * (i == 0 ? 0.72f : 0.60f);
+            var queuedFont = RenderCache.Font(ctx.Mono, size);
+            var queuedMetrics = queuedFont.Metrics;
+            var body = upcoming[i].Trim();
+            var baseline = activeY + (i + 1) * upcomingGap - (queuedMetrics.Ascent + queuedMetrics.Descent) / 2f;
+            var rowWidth = textX - left + queuedFont.MeasureText(body);
+            var fit = rowWidth > maxWidth && rowWidth > 0 ? maxWidth / rowWidth : 1f;
+            var queuedAlpha = ctx.Alpha * ease * (i == 0 ? 0.26f : 0.16f);
+
+            ctx.Canvas.Save();
+            if (fit < 1f)
+            {
+                ctx.Canvas.Translate(left, baseline);
+                ctx.Canvas.Scale(fit, fit);
+                ctx.Canvas.Translate(-left, -baseline);
+            }
+
+            promptPaint.Color = WithAlpha(lavender, queuedAlpha * 1.35f);
+            ctx.Canvas.DrawText(prompt, textX - activeSize * 0.45f - queuedFont.MeasureText(prompt), baseline,
+                SKTextAlign.Left, queuedFont, promptPaint);
+            ghostPaint.Color = WithAlpha(lavender, queuedAlpha);
+            ctx.Canvas.DrawText(body, textX, baseline, SKTextAlign.Left, queuedFont, ghostPaint);
+            ctx.Canvas.Restore();
+        }
+
+        ctx.Canvas.Restore();
     }
 
     /// <summary>
@@ -404,7 +421,7 @@ internal static class StyleRenderers
         using var halo = new SKPaint
         {
             IsAntialias = true,
-            MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 6f),
+            MaskFilter = RenderCache.Blur(6f),
         };
 
         // The travelling head: a soft white glow with a hard bright centre.
@@ -446,7 +463,7 @@ internal static class StyleRenderers
         using var labelGlow = new SKPaint
         {
             IsAntialias = true,
-            MaskFilter = ctx.Style.Glow ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 6f) : null,
+            MaskFilter = ctx.Style.Glow ? RenderCache.Blur(6f) : null,
         };
 
         for (var pass = 0; pass < 2; pass++)
@@ -466,7 +483,7 @@ internal static class StyleRenderers
                 }
 
                 var fontSize = isActive ? size * 1.40f : size;
-                using var font = new SKFont(ctx.Bold, fontSize) { Subpixel = true, Edging = SKFontEdging.SubpixelAntialias };
+                var font = RenderCache.Font(ctx.Bold, fontSize);
                 var half = font.MeasureText(ctx.Words[i].Text) / 2f + 8f;
                 var labelX = Math.Clamp(tips[i].X, half, ctx.Width - half);
                 var baseline = Math.Clamp(tips[i].Y + fontSize * 0.35f, fontSize + 4f, ctx.Height - 8f);
@@ -569,7 +586,7 @@ internal static class StyleRenderers
         using var halo = new SKPaint
         {
             IsAntialias = true,
-            MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 7f),
+            MaskFilter = RenderCache.Blur(7f),
         };
         using var ring = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.2f };
 
@@ -609,7 +626,7 @@ internal static class StyleRenderers
         using var labelGlow = new SKPaint
         {
             IsAntialias = true,
-            MaskFilter = ctx.Style.Glow ? SKMaskFilter.CreateBlur(SKBlurStyle.Normal, 6f) : null,
+            MaskFilter = ctx.Style.Glow ? RenderCache.Blur(6f) : null,
         };
 
         for (var pass = 0; pass < 2; pass++)
@@ -630,7 +647,7 @@ internal static class StyleRenderers
                 var text = ctx.Words[i].Text;
                 var fill = (float)ctx.Words[i].FillAt(ctx.PositionMs);
                 var fontSize = isActive ? size * 1.6f : size;
-                using var font = new SKFont(ctx.Bold, fontSize) { Subpixel = true, Edging = SKFontEdging.SubpixelAntialias };
+                var font = RenderCache.Font(ctx.Bold, fontSize);
 
                 var half = widths[i] / 2f + 10f;
                 var labelX = Math.Clamp(points[i].X, half, ctx.Width - half);
@@ -668,7 +685,7 @@ internal static class StyleRenderers
         }
 
         var size = Math.Max(12f, 20f * (float)ctx.Style.TextScale);
-        using var font = new SKFont(ctx.Bold, size) { Subpixel = true };
+        var font = RenderCache.Font(ctx.Bold, size, subpixelEdging: false);
         var metrics = font.Metrics;
         var bubbleHeight = size + 18f;
 
@@ -750,7 +767,7 @@ internal static class StyleRenderers
         var ease = KaraokeRenderer.EaseOutCubic(ctx.Enter);
         var scale = (float)ctx.Style.TextScale;
         var size = Math.Max(12f, 18f * scale);
-        using var font = new SKFont(ctx.Bold, size) { Subpixel = true, Edging = SKFontEdging.SubpixelAntialias };
+        var font = RenderCache.Font(ctx.Bold, size);
         var metrics = font.Metrics;
 
         var padX = 16f;
@@ -892,7 +909,7 @@ internal static class StyleRenderers
             return;
         }
 
-        using var font = new SKFont(typeface, size) { Subpixel = true, Edging = SKFontEdging.SubpixelAntialias };
+        var font = RenderCache.Font(typeface, size);
         var metrics = font.Metrics;
         var width = font.MeasureText(text);
         var x = centerX - width / 2f;
@@ -913,12 +930,12 @@ internal static class StyleRenderers
 
         if (glow && fill < 1f)
         {
-            using var glowFont = new SKFont(typeface, size) { Subpixel = false, Edging = SKFontEdging.Antialias };
+            var glowFont = RenderCache.Font(typeface, size, subpixelEdging: false, subpixel: false);
             using var glowPaint = new SKPaint
             {
                 IsAntialias = true,
                 Color = WithAlpha(glowColor, alpha * 0.62f),
-                MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, blur),
+                MaskFilter = RenderCache.Blur(blur),
             };
             var glowPad = blur * 2f + 2f;
             var glowClip = new SKRect(
@@ -979,7 +996,7 @@ internal static class StyleRenderers
     /// <summary>Word widths at one size, for laying labels out without collisions.</summary>
     private static float[] MeasureWords(SKTypeface typeface, IReadOnlyList<TimedWord> words, float size)
     {
-        using var font = new SKFont(typeface, size) { Subpixel = true };
+        var font = RenderCache.Font(typeface, size, subpixelEdging: false);
         var widths = new float[words.Count];
         for (var i = 0; i < words.Count; i++)
         {
@@ -1005,6 +1022,18 @@ internal static class StyleRenderers
         }
 
         return active;
+    }
+
+    /// <summary>The first <paramref name="width"/> pixels of a line, with room for a blurred pass.</summary>
+    private static void DrawTextUpTo(SKCanvas canvas, string text, float x, float baseline,
+        SKFont font, SKPaint paint, float width, float pad)
+    {
+        var metrics = font.Metrics;
+        canvas.Save();
+        canvas.ClipRect(new SKRect(x - pad, baseline + metrics.Ascent - pad,
+            x + width + pad, baseline + metrics.Descent + pad));
+        canvas.DrawText(text, x, baseline, SKTextAlign.Left, font, paint);
+        canvas.Restore();
     }
 
     private static SKColor WithAlpha(SKColor color, float alpha) =>

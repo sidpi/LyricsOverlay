@@ -19,6 +19,37 @@ internal static class TextFonts
 
     private static readonly ConcurrentDictionary<(string Family, int Weight, int Slant, ulong Fingerprint), SKTypeface> Cache = new();
 
+    // Code faces, in the order the code style prefers them. Windows 11 ships the Cascadia family
+    // with Windows Terminal; an older machine falls back to Consolas rather than to proportional text.
+    private static readonly string[] CodeFamilies = { "Cascadia Code", "Cascadia Mono", "Consolas" };
+
+    private static SKTypeface? _mono;
+
+    /// <summary>
+    /// The typeface the code style draws in: a real code font when the machine has one, instead of
+    /// whatever proportional font the lyrics use.
+    /// </summary>
+    public static SKTypeface Mono(SKTypeface? fallback = null)
+    {
+        if (_mono is not null)
+        {
+            return _mono;
+        }
+
+        foreach (var family in CodeFamilies)
+        {
+            // FromFamilyName answers with a substitute face for an unknown family, so the name
+            // has to come back unchanged for the font to count as installed.
+            var face = SKTypeface.FromFamilyName(family, SKFontStyle.Normal);
+            if (face is not null && string.Equals(face.FamilyName, family, StringComparison.OrdinalIgnoreCase))
+            {
+                return _mono = face;
+            }
+        }
+
+        return _mono = fallback ?? SKTypeface.Default;
+    }
+
     // Ordered fallbacks per script; the first family that covers every character wins.
     private static readonly string[] Korean = { "Malgun Gothic", "Yu Gothic UI", "Microsoft JhengHei", "Noto Sans CJK KR" };
     private static readonly string[] Japanese = { "Yu Gothic UI", "Meiryo", "MS Gothic", "Noto Sans CJK JP" };
